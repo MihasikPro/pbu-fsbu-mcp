@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "MCP server for Russian accounting standards (PBU/FSBU)"
 requires-python = ">=3.12"
 dependencies = [
+    # Pinned to the 1.x line deliberately. mcp 2.0.0 (released 2026-07-28) is a
+    # major SDK rework that removes `mcp.server.fastmcp.FastMCP`, which this
+    # server is built on. 1.x still receives critical fixes on its own branch.
+    # Revisit only as a planned migration, never by relaxing this bound.
     "mcp>=1.2.0,<2.0.0",
     "pydantic>=2.7",
     "pymorphy3>=2.0",
@@ -34,3 +38,7 @@ files = ["src", "etl"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The default temp root (%LOCALAPPDATA%\Temp\pytest-of-<user>) is ACL-locked on
+# the current development machine, which breaks every tmp_path fixture. A
+# repo-local basetemp keeps test runs reproducible regardless of machine state.
+addopts = "--basetemp=.pytest-tmp"
