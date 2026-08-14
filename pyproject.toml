@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.7",
     "pymorphy3>=2.0",
     "pyyaml>=6.0",
+    "starlette>=0.40",
 ]
 
 [project.scripts]
@@ -42,3 +43,7 @@ testpaths = ["tests"]
 # the current development machine, which breaks every tmp_path fixture. A
 # repo-local basetemp keeps test runs reproducible regardless of machine state.
 addopts = "--basetemp=.pytest-tmp"
+filterwarnings = [
+    "error",  # Treat all warnings as errors to catch problems early
+    "ignore:Field 'lifespan' has an incomplete definition.*",  # mcp==1.29.0 via pydantic_settings; remove when fixed upstream
+]
