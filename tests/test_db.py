@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -64,3 +65,21 @@ def test_get_clause_raises_with_available_paths(corpus: Corpus) -> None:
 
 def test_built_at_is_read_from_meta(corpus: Corpus) -> None:
     assert corpus.built_at() == date(2026, 8, 14)
+
+
+def test_corpus_connection_rejects_writes(corpus: Corpus) -> None:
+    """The read-only mode is what makes the server safe as an immutable container."""
+    with pytest.raises(sqlite3.OperationalError):
+        corpus._connection.execute("DELETE FROM clause")
+
+
+def test_corpus_opens_under_a_path_containing_a_hash(
+    corpus_db: Path, tmp_path: Path
+) -> None:
+    """`#` in a path silently opened an EMPTY database before the URI was encoded."""
+    awkward = tmp_path / "dir#with#hash"
+    awkward.mkdir()
+    copied = awkward / "corpus.db"
+    copied.write_bytes(corpus_db.read_bytes())
+
+    assert Corpus(copied).get_clause("fsbu-6-2020", "1", TODAY).path == "1"

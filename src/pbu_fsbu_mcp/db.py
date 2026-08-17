@@ -49,12 +49,42 @@ def _as_date(value: str | None) -> date | None:
     return date.fromisoformat(value) if value else None
 
 
+def _assert_thread_safe() -> None:
+    """Fail loudly if this build cannot share one connection between threads."""
+    if sqlite3.threadsafety < 3:
+        raise RuntimeError(
+            "This sqlite3 build reports threadsafety="
+            f"{sqlite3.threadsafety}; the server shares one connection across "
+            "requests and needs serialized mode (3)."
+        )
+
+
+def read_only_uri(db_path: Path) -> str:
+    """Build a read-only SQLite URI that survives special characters in the path.
+
+    Interpolating the raw path into `file:{path}?mode=ro` looks harmless but is
+    not: SQLite's URI parser treats `#` as a fragment separator, so a database
+    under a directory containing `#` opens *successfully* against an empty
+    database and only fails later with "no such table". `as_uri()` percent-encodes
+    the path, which is why this goes through it. Verified against paths containing
+    a space, `#` and `%`.
+    """
+    return f"{db_path.resolve().as_uri()}?mode=ro"
+
+
 class Corpus:
-    """Query facade over the SQLite corpus."""
+    """Query facade over the SQLite corpus.
+
+    One connection is opened per instance and shared across requests with
+    `check_same_thread=False`. That is safe because CPython's sqlite3 reports
+    `threadsafety == 3` (serialized) on supported builds; `_assert_thread_safe`
+    turns that assumption into a checked precondition instead of folklore.
+    """
 
     def __init__(self, db_path: Path) -> None:
+        _assert_thread_safe()
         self._connection = sqlite3.connect(
-            f"file:{db_path}?mode=ro", uri=True, check_same_thread=False
+            read_only_uri(db_path), uri=True, check_same_thread=False
         )
         self._connection.row_factory = sqlite3.Row
 
