@@ -18,8 +18,12 @@ def registry_document(corpus: Corpus, on_date: date) -> str:
     lines = [
         f"# Реестр стандартов бухгалтерского учета на {on_date.strftime('%d.%m.%Y')}",
         "",
-        _HEADER,
     ]
+    warnings = corpus.warnings()
+    if warnings:
+        lines.extend(f"> {warning}" for warning in warnings)
+        lines.append("")
+    lines.append(_HEADER)
     for item in corpus.list_standards(on_date):
         mapping_flag = "да" if item.has_1c_mapping else "нет"
         lines.append(

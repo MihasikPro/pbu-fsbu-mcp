@@ -8,7 +8,6 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from pbu_fsbu_mcp.db import Corpus, CorpusError
-from pbu_fsbu_mcp.disclaimers import corpus_warnings
 
 
 def parse_on_date(value: str | None) -> date:
@@ -28,7 +27,7 @@ def list_standards_payload(
     summaries = corpus.list_standards(as_of, kind=kind)
     return {
         "as_of_date": as_of.isoformat(),
-        "warnings": corpus_warnings(corpus.built_at(), date.today()),
+        "warnings": corpus.warnings(),
         "standards": [summary.model_dump(mode="json") for summary in summaries],
     }
 
@@ -44,7 +43,7 @@ def get_standard_payload(
         raise ValueError(str(exc)) from exc
     return {
         "as_of_date": as_of.isoformat(),
-        "warnings": corpus_warnings(corpus.built_at(), date.today()),
+        "warnings": corpus.warnings(),
         "standard": summary.model_dump(mode="json"),
         "outline": [{"path": path, "heading": heading} for path, heading in outline],
     }

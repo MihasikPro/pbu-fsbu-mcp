@@ -6,6 +6,7 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
+from pbu_fsbu_mcp.disclaimers import corpus_warnings
 from pbu_fsbu_mcp.models import ClauseResponse, StandardSummary
 from pbu_fsbu_mcp.temporal import EditionRef, resolve_edition, status_on
 
@@ -91,6 +92,14 @@ class Corpus:
     def built_at(self) -> date:
         row = self._connection.execute("SELECT built_at FROM corpus_meta").fetchone()
         return date.fromisoformat(row["built_at"])
+
+    def warnings(self) -> list[str]:
+        """Standing warnings to attach to every response, e.g. a stale corpus.
+
+        The single source of truth for staleness lookup - every payload function
+        and the registry resource call this instead of recomputing it independently.
+        """
+        return corpus_warnings(self.built_at(), date.today())
 
     def is_populated(self) -> bool:
         """True if the corpus actually contains a built standard, not just an empty schema.

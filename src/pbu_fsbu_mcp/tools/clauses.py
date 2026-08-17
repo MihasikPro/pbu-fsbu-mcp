@@ -8,7 +8,6 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from pbu_fsbu_mcp.db import Corpus, CorpusError, NoEditionOnDate
-from pbu_fsbu_mcp.disclaimers import corpus_warnings
 from pbu_fsbu_mcp.models import ClauseResponse, StandardStatus
 from pbu_fsbu_mcp.tools.registry import parse_on_date
 
@@ -26,10 +25,10 @@ def get_clause_payload(
         clause.warnings.append(
             f"На {as_of.strftime('%d.%m.%Y')} стандарт не действует: {clause.status.value}."
         )
-    clause.warnings.extend(corpus_warnings(corpus.built_at(), date.today()))
 
     return {
         "as_of_date": as_of.isoformat(),
+        "warnings": corpus.warnings(),
         "clause": clause.model_dump(mode="json"),
     }
 

@@ -41,3 +41,10 @@ def test_date_before_effective_marks_not_yet(corpus: Corpus) -> None:
 def test_unknown_standard_raises(corpus: Corpus) -> None:
     with pytest.raises(ValueError, match="отсутствует в корпусе"):
         get_clause_payload(corpus, "fsbu-999-1999", "1", "2026-08-14")
+
+
+def test_payload_has_a_top_level_warnings_key(corpus: Corpus) -> None:
+    """get_clause must expose warnings the same way as the other three tools -
+    a client reading payload["warnings"] must not need special-casing per tool."""
+    payload = get_clause_payload(corpus, "fsbu-6-2020", "1", "2026-08-14")
+    assert payload["warnings"] == []

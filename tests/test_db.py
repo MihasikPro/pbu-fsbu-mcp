@@ -4,10 +4,12 @@ from pathlib import Path
 
 import pytest
 
+from etl.build_db import build
 from pbu_fsbu_mcp.db import ClauseNotFound, Corpus, StandardNotFound
 from pbu_fsbu_mcp.models import StandardStatus
 
 TODAY = date(2026, 8, 14)
+SOURCES = Path(__file__).resolve().parents[1] / "data" / "sources" / "standards"
 
 
 @pytest.fixture
@@ -65,6 +67,17 @@ def test_get_clause_raises_with_available_paths(corpus: Corpus) -> None:
 
 def test_built_at_is_read_from_meta(corpus: Corpus) -> None:
     assert corpus.built_at() == date(2026, 8, 14)
+
+
+def test_warnings_is_empty_for_a_freshly_built_corpus(corpus: Corpus) -> None:
+    assert corpus.warnings() == []
+
+
+def test_warnings_reports_a_stale_corpus(tmp_path: Path) -> None:
+    output = tmp_path / "stale.db"
+    build(SOURCES, output, built_at=date(2000, 1, 1))
+    stale_corpus = Corpus(output)
+    assert any("пересборка корпуса" in warning for warning in stale_corpus.warnings())
 
 
 def test_corpus_connection_rejects_writes(corpus: Corpus) -> None:

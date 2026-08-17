@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from pbu_fsbu_mcp.db import Corpus
-from pbu_fsbu_mcp.disclaimers import corpus_warnings
 from pbu_fsbu_mcp.search.backend import SearchBackend
 from pbu_fsbu_mcp.tools.registry import parse_on_date
 
@@ -38,7 +36,7 @@ def search_clauses_payload(
         "as_of_date": as_of.isoformat(),
         "limit": effective_limit,
         "message": message,
-        "warnings": corpus_warnings(corpus.built_at(), date.today()),
+        "warnings": corpus.warnings(),
         "hits": [hit.model_dump(mode="json") for hit in hits],
     }
 
