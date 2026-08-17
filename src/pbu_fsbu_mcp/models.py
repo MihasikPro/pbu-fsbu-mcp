@@ -95,6 +95,15 @@ class StandardSummary(BaseModel):
     superseded_by: str | None
     has_1c_mapping: bool
     source_url: str
+    successors: list[str] = Field(default_factory=list)
+
+
+class CrosslinkSource(BaseModel):
+    """One standard-to-standard relation from `data/sources/crosslinks.yaml`."""
+
+    from_standard: str
+    to_standard: str
+    kind: Literal["заменён", "аналог", "отсылка"]
 
 
 class ClauseResponse(BaseModel):

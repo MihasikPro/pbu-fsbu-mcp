@@ -10,7 +10,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from pbu_fsbu_mcp.loader import load_all
+from pbu_fsbu_mcp.loader import load_all, load_crosslinks
 from pbu_fsbu_mcp.models import Standard
 from pbu_fsbu_mcp.search.morphology import lemmatize
 
@@ -39,6 +39,22 @@ def build(sources_dir: Path, output: Path, built_at: date) -> None:
             connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
             for standard in standards:
                 _insert_standard(connection, standard)
+
+            known = {standard.id for standard in standards}
+            crosslinks = load_crosslinks(sources_dir.parent / "crosslinks.yaml")
+            for link in crosslinks:
+                if link.from_standard not in known or link.to_standard not in known:
+                    print(
+                        f"Связь {link.from_standard} -> {link.to_standard} пропущена:"
+                        " один из стандартов отсутствует в корпусе"
+                    )
+                    continue
+                connection.execute(
+                    "INSERT INTO standard_crosslink (from_standard, to_standard, kind)"
+                    " VALUES (?, ?, ?)",
+                    (link.from_standard, link.to_standard, link.kind),
+                )
+
             _insert_meta(connection, standards, built_at)
             connection.commit()
         finally:

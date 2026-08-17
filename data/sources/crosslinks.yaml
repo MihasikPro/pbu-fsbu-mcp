@@ -1,0 +1,11 @@
+# Связи между стандартами: какой стандарт приходит на смену какому.
+# kind: заменён | аналог | отсылка
+- from_standard: pbu-9-99
+  to_standard: fsbu-9-2025
+  kind: заменён
+- from_standard: pbu-10-99
+  to_standard: fsbu-10-2026
+  kind: заменён
+- from_standard: pbu-17-02
+  to_standard: fsbu-14-2022
+  kind: заменён
