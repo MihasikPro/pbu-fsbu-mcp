@@ -27,8 +27,19 @@ def _load_cases() -> list[dict[str, Any]]:
     return cases
 
 
+def _case_on_date(case: dict[str, Any]) -> date:
+    """Most cases resolve against TODAY; a case may override it via `on_date`.
+
+    Needed for standards that only take effect after TODAY (fsbu-9-2025,
+    fsbu-10-2026): their editions are correctly excluded from a TODAY-dated
+    search as not-yet-effective, so reaching them requires a later date.
+    """
+    on_date = case.get("on_date")
+    return date.fromisoformat(on_date) if on_date else TODAY
+
+
 def _finds_expected(backend: FtsSearchBackend, case: dict[str, Any]) -> tuple[bool, str]:
-    hits = backend.search(case["query"], None, TODAY, limit=3)
+    hits = backend.search(case["query"], None, _case_on_date(case), limit=3)
     found = any(
         hit.standard_id == case["expect_standard"] and hit.path == case["expect_path"]
         for hit in hits
@@ -42,17 +53,26 @@ def test_golden_queries_hit_rate(corpus_db: Path) -> None:
     cases = [case for case in _load_cases() if not case.get("lexical_limitation")]
     assert cases, "Golden-набор не должен состоять из одних известных ограничений"
 
-    misses: list[str] = []
+    misses_by_standard: dict[str, list[str]] = {}
     for case in cases:
         found, got = _finds_expected(backend, case)
         if not found:
-            misses.append(
+            miss = (
                 f"{case['query']!r}: ожидался "
                 f"{case['expect_standard']}#{case['expect_path']}, получено {got}"
             )
+            misses_by_standard.setdefault(case["expect_standard"], []).append(miss)
 
-    hit_rate = 1 - len(misses) / len(cases)
-    assert hit_rate >= MIN_HIT_RATE, "Промахи:\n" + "\n".join(misses)
+    miss_count = sum(len(misses) for misses in misses_by_standard.values())
+    hit_rate = 1 - miss_count / len(cases)
+
+    # Grouped by standard: at ~3000 clauses a flat miss list makes diagnosis slow -
+    # knowing which standard(s) regressed narrows the search immediately.
+    report = "\n".join(
+        f"{standard} ({len(misses)}):\n  " + "\n  ".join(misses)
+        for standard, misses in sorted(misses_by_standard.items())
+    )
+    assert hit_rate >= MIN_HIT_RATE, "Промахи по стандартам:\n" + report
 
 
 def test_known_lexical_limitations_still_fail(corpus_db: Path) -> None:

@@ -92,8 +92,14 @@ def test_crosslink_to_absent_standard_is_skipped(corpus: Corpus) -> None:
 def test_build_skips_crosslinks_to_absent_standards_with_warning(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Of the three real crosslinks, pbu-9-99 -> fsbu-9-2025 and pbu-10-99 -> fsbu-10-2026
+    now resolve because both standards in each pair are present in the corpus. Only
+    pbu-17-02 -> fsbu-14-2022 is still skipped: ПБУ 17/02 is not in the registry."""
     output = tmp_path / "corpus.db"
     build(SOURCES, output, built_at=TODAY)
     captured = capsys.readouterr()
-    assert "pbu-9-99" in captured.out
+    assert "pbu-17-02" in captured.out
+    assert "fsbu-14-2022" in captured.out
     assert "пропущена" in captured.out
+    assert "pbu-9-99" not in captured.out
+    assert "pbu-10-99" not in captured.out

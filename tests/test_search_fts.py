@@ -67,8 +67,16 @@ def backend(corpus_db: Path) -> FtsSearchBackend:
 
 
 def test_finds_clause_by_inflected_query(backend: FtsSearchBackend) -> None:
-    hits = backend.search("требований", None, TODAY, limit=5)
-    assert any(hit.path == "1" for hit in hits)
+    """Genitive plural "требований" must resolve to the same clauses as the nominative
+    plural "требования" - proving the lemmatiser normalises inflected forms rather than
+    doing a literal substring match. Pinning to one standard's path would be arbitrary
+    across a 29-standard corpus; equivalence to the base form is what inflection means."""
+    inflected = backend.search("требований", None, TODAY, limit=5)
+    base_form = backend.search("требования", None, TODAY, limit=5)
+    assert inflected
+    assert [(hit.standard_id, hit.path) for hit in inflected] == [
+        (hit.standard_id, hit.path) for hit in base_form
+    ]
 
 
 def test_respects_limit(backend: FtsSearchBackend) -> None:
@@ -90,15 +98,29 @@ def test_query_with_no_matches_returns_empty_list(backend: FtsSearchBackend) -> 
 
 
 def test_special_characters_do_not_break_fts(backend: FtsSearchBackend) -> None:
-    """FTS5 operators in user input must be literals, not syntax - and never raise."""
+    """FTS5 operators in user input must be literals, not syntax - and never raise.
+
+    `lemmatize()` strips the quotes/`AND`/`OR`/`*` punctuation before tokenising, so a
+    query built from the same words without any FTS5-special characters must produce
+    the byte-for-byte identical lemma expression and therefore identical hits. If the
+    special characters leaked into FTS5 syntax instead of being treated as literals,
+    this equality would break (or the call would raise) well before this assertion.
+    """
     hits = backend.search('пункт "9" AND OR *', None, TODAY, limit=5)
-    assert all(hit.standard_id == "fsbu-6-2020" for hit in hits)
+    plain_hits = backend.search("пункт 9 and or", None, TODAY, limit=5)
+    assert hits
+    assert [(hit.standard_id, hit.path) for hit in hits] == [
+        (hit.standard_id, hit.path) for hit in plain_hits
+    ]
 
 
 def test_hits_carry_snippet_and_score(backend: FtsSearchBackend) -> None:
+    """Every hit must carry a non-empty snippet, a standard title, and a numeric score -
+    which standard happens to rank first across a 29-standard corpus is not the point."""
     hits = backend.search("требований", None, TODAY, limit=5)
     assert hits[0].snippet
-    assert hits[0].standard_title == "Основные средства"
+    assert hits[0].standard_title
+    assert isinstance(hits[0].score, float)
 
 
 def test_score_is_higher_is_better(backend: FtsSearchBackend) -> None:
