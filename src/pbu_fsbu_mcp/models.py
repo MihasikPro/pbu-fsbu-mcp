@@ -72,11 +72,9 @@ class Standard(BaseModel):
         return self
 
     def status_on(self, on_date: date) -> StandardStatus:
-        if on_date < self.effective_from:
-            return StandardStatus.NOT_YET
-        if self.effective_to is not None and on_date >= self.effective_to:
-            return StandardStatus.REPEALED
-        return StandardStatus.ACTIVE
+        from pbu_fsbu_mcp.temporal import status_on
+
+        return status_on(self.effective_from, self.effective_to, on_date)
 
 
 class StandardSummary(BaseModel):
