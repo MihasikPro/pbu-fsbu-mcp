@@ -24,6 +24,7 @@ def test_parses_fsbu_6_2020() -> None:
     assert row.order_date == date(2020, 9, 17)
     assert row.order_no == "204н"
     assert row.effective_from == date(2022, 1, 1)
+    assert row.document_url == "https://minfin.gov.ru/ru/document?id_4=133537"
 
 
 def test_normalises_two_digit_year() -> None:
@@ -57,3 +58,21 @@ def test_all_ids_are_unique() -> None:
 def test_every_row_carries_source_url() -> None:
     rows = parse(FIXTURE.read_bytes(), REGISTRY_URL)
     assert all(row.source_url == REGISTRY_URL for row in rows)
+
+
+def test_captures_document_url_for_an_old_standard() -> None:
+    row = _rows()["pbu-1-2008"]
+    assert row.document_url == "https://minfin.gov.ru/ru/document?id_4=2260"
+
+
+def test_document_url_differs_from_the_order_link() -> None:
+    # The title cell and the order cell each carry their own `id_4=` link;
+    # document_url must resolve to the standard's own page, not the order's.
+    row = _rows()["fsbu-6-2020"]
+    assert row.document_url != row.source_url
+    assert "id_4=133537" in row.document_url
+
+
+def test_every_row_carries_a_document_url() -> None:
+    rows = parse(FIXTURE.read_bytes(), REGISTRY_URL)
+    assert all(row.document_url.startswith("https://minfin.gov.ru/ru/document?id_4=") for row in rows)

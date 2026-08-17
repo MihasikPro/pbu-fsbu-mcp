@@ -22,6 +22,7 @@ ROW = RegistryRow(
     effective_from=date(2022, 1, 1),
     effective_to=None,
     source_url="https://minfin.gov.ru/",
+    document_url="https://minfin.gov.ru/ru/document?id_4=133537",
 )
 OTHER_ROW = RegistryRow(
     id="pbu-1-2008",
@@ -34,6 +35,7 @@ OTHER_ROW = RegistryRow(
     effective_from=date(2009, 1, 1),
     effective_to=None,
     source_url="https://minfin.gov.ru/",
+    document_url="https://minfin.gov.ru/ru/document?id_4=2260",
 )
 CLAUSES = [
     ParsedClause(path="1", parent_path=None, heading="Общие положения", text="Текст первого."),
@@ -42,49 +44,57 @@ CLAUSES = [
 
 
 def test_render_produces_parsable_yaml() -> None:
-    document = yaml.safe_load(render(ROW, CLAUSES))
+    document = yaml.safe_load(render(ROW, CLAUSES, source="ocr"))
     assert document["id"] == "fsbu-6-2020"
     assert document["order_no"] == "204н"
 
 
 def test_render_creates_single_first_edition() -> None:
-    document = yaml.safe_load(render(ROW, CLAUSES))
+    document = yaml.safe_load(render(ROW, CLAUSES, source="ocr"))
     assert len(document["editions"]) == 1
     assert document["editions"][0]["edition_no"] == 1
 
 
 def test_render_preserves_clause_order_and_paths() -> None:
-    document = yaml.safe_load(render(ROW, CLAUSES))
+    document = yaml.safe_load(render(ROW, CLAUSES, source="ocr"))
     paths = [clause["path"] for clause in document["editions"][0]["clauses"]]
     assert paths == ["1", "1.а"]
 
 
 def test_rendered_draft_loads_through_production_loader(tmp_path: Path) -> None:
     path = tmp_path / "fsbu-6-2020.yaml"
-    path.write_text(render(ROW, CLAUSES), encoding="utf-8")
+    path.write_text(render(ROW, CLAUSES, source="ocr"), encoding="utf-8")
     standard = load_standard(path)
     assert standard.editions[0].clauses[1].id == "fsbu-6-2020@1#1.а"
 
 
 def test_draft_carries_review_marker() -> None:
-    assert "ЧЕРНОВИК" in render(ROW, CLAUSES)
+    assert "ЧЕРНОВИК" in render(ROW, CLAUSES, source="ocr")
 
 
-# --- _fetch_clauses: wiring between search, OCR, and the clause parser -----
+def test_draft_banner_names_the_html_source() -> None:
+    assert "HTML" in render(ROW, CLAUSES, source="html")
+
+
+def test_draft_banner_names_the_ocr_source() -> None:
+    assert "OCR" in render(ROW, CLAUSES, source="ocr")
+
+
+# --- _fetch_clauses_ocr: wiring between search, OCR, and the clause parser -
 # No network and no OCR: `fetch` and `extract` are stubbed at the module level.
 
 
-def test_fetch_clauses_raises_when_no_published_act_is_found(
+def test_fetch_clauses_ocr_raises_when_no_published_act_is_found(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(draft_yaml, "fetch", lambda url, cache, *, live: b"{}")
     monkeypatch.setattr(draft_yaml, "parse_search", lambda payload: [])
 
     with pytest.raises(LookupError):
-        draft_yaml._fetch_clauses(ROW, tmp_path, live=False)
+        draft_yaml._fetch_clauses_ocr(ROW, tmp_path, live=False)
 
 
-def test_fetch_clauses_wires_search_result_through_ocr_and_parser(
+def test_fetch_clauses_ocr_wires_search_result_through_ocr_and_parser(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     act = PublishedAct(eo_number="0001202010160010", title="...", pdf_url="http://example/pdf")
@@ -92,10 +102,91 @@ def test_fetch_clauses_wires_search_result_through_ocr_and_parser(
     monkeypatch.setattr(draft_yaml, "parse_search", lambda payload: [act])
     monkeypatch.setattr(draft_yaml, "extract", lambda pdf_bytes: "1. Текст пункта.")
 
-    clauses = draft_yaml._fetch_clauses(ROW, tmp_path, live=False)
+    clauses = draft_yaml._fetch_clauses_ocr(ROW, tmp_path, live=False)
 
     assert [clause.path for clause in clauses] == ["1"]
     assert clauses[0].text == "Текст пункта."
+
+
+def test_fetch_clauses_ocr_slices_the_order_to_the_requested_standard_before_parsing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order_text = (
+        "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА\nФСБУ 6/2020 «Основные средства»\n\n"
+        "1. Текст первого стандарта.\n\n"
+        "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА\nФСБУ 26/2020 «Капитальные вложения»\n\n"
+        "1. Текст второго стандарта.\n"
+    )
+    act = PublishedAct(eo_number="0001202010160010", title="...", pdf_url="http://example/pdf")
+    monkeypatch.setattr(draft_yaml, "fetch", lambda url, cache, *, live: b"{}")
+    monkeypatch.setattr(draft_yaml, "parse_search", lambda payload: [act])
+    monkeypatch.setattr(draft_yaml, "extract", lambda pdf_bytes: order_text)
+
+    clauses = draft_yaml._fetch_clauses_ocr(ROW, tmp_path, live=False)
+
+    assert [clause.text for clause in clauses] == ["Текст первого стандарта."]
+
+
+# --- _fetch_clauses_html: the Minfin HTML document-page path ---------------
+# No network: `fetch` is stubbed to return a small HTML page in the exact
+# shape `etl.minfin_document.extract_clauses_html` expects.
+
+
+def _html_page(clause_count: int) -> bytes:
+    paragraphs = "".join(f"<p>{n}. Текст пункта {n}.</p>" for n in range(1, clause_count + 1))
+    return f"<div class='text_wrapper'>{paragraphs}</div>".encode()
+
+
+def test_fetch_clauses_html_parses_the_document_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(draft_yaml, "fetch", lambda url, cache, *, live: _html_page(5))
+
+    clauses = draft_yaml._fetch_clauses_html(ROW, tmp_path, live=False)
+
+    assert clauses is not None
+    assert [clause.path for clause in clauses] == ["1", "2", "3", "4", "5"]
+
+
+def test_fetch_clauses_html_returns_none_when_the_page_is_too_thin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(draft_yaml, "fetch", lambda url, cache, *, live: b"<html></html>")
+
+    assert draft_yaml._fetch_clauses_html(ROW, tmp_path, live=False) is None
+
+
+# --- _fetch_clauses: HTML-first orchestration, OCR only as a fallback ------
+
+
+def test_fetch_clauses_prefers_html_and_never_calls_ocr_when_it_is_enough(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ocr_calls: list[str] = []
+    monkeypatch.setattr(draft_yaml, "fetch", lambda url, cache, *, live: _html_page(5))
+    monkeypatch.setattr(
+        draft_yaml,
+        "_fetch_clauses_ocr",
+        lambda row, cache, *, live: ocr_calls.append(row.id) or CLAUSES,
+    )
+
+    clauses, source = draft_yaml._fetch_clauses(ROW, tmp_path, live=False)
+
+    assert source == draft_yaml.SOURCE_HTML
+    assert len(clauses) == 5
+    assert ocr_calls == []
+
+
+def test_fetch_clauses_falls_back_to_ocr_when_the_html_page_is_too_thin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(draft_yaml, "fetch", lambda url, cache, *, live: b"<html></html>")
+    monkeypatch.setattr(draft_yaml, "_fetch_clauses_ocr", lambda row, cache, *, live: CLAUSES)
+
+    clauses, source = draft_yaml._fetch_clauses(ROW, tmp_path, live=False)
+
+    assert source == draft_yaml.SOURCE_OCR
+    assert clauses == CLAUSES
 
 
 # --- main(): orchestration, stubbed end to end -----------------------------
@@ -113,7 +204,9 @@ def test_main_only_filters_to_a_single_standard(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _stub_registry(monkeypatch, [ROW, OTHER_ROW])
-    monkeypatch.setattr(draft_yaml, "_fetch_clauses", lambda row, cache, *, live: CLAUSES)
+    monkeypatch.setattr(
+        draft_yaml, "_fetch_clauses", lambda row, cache, *, live: (CLAUSES, "html")
+    )
     out = tmp_path / "drafts"
 
     exit_code = draft_yaml.main(
@@ -149,10 +242,10 @@ def test_main_continues_after_one_standard_fails(
 
     def fake_fetch_clauses(
         row: RegistryRow, cache_dir: Path, *, live: bool
-    ) -> list[ParsedClause]:
+    ) -> tuple[list[ParsedClause], str]:
         if row.id == ROW.id:
             raise LookupError("акт не найден")
-        return CLAUSES
+        return CLAUSES, "html"
 
     monkeypatch.setattr(draft_yaml, "_fetch_clauses", fake_fetch_clauses)
     out = tmp_path / "drafts"
@@ -168,31 +261,16 @@ def test_main_writes_a_draft_that_round_trips_through_render(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _stub_registry(monkeypatch, [ROW])
-    monkeypatch.setattr(draft_yaml, "_fetch_clauses", lambda row, cache, *, live: CLAUSES)
+    monkeypatch.setattr(
+        draft_yaml, "_fetch_clauses", lambda row, cache, *, live: (CLAUSES, "html")
+    )
     out = tmp_path / "drafts"
 
     draft_yaml.main(["--cache", str(tmp_path / "cache"), "--out", str(out)])
 
-    assert (out / f"{ROW.id}.yaml").read_text(encoding="utf-8") == render(ROW, CLAUSES)
-
-
-def test_fetch_clauses_slices_the_order_to_the_requested_standard_before_parsing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    order_text = (
-        "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА\nФСБУ 6/2020 «Основные средства»\n\n"
-        "1. Текст первого стандарта.\n\n"
-        "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА\nФСБУ 26/2020 «Капитальные вложения»\n\n"
-        "1. Текст второго стандарта.\n"
+    assert (out / f"{ROW.id}.yaml").read_text(encoding="utf-8") == render(
+        ROW, CLAUSES, source="html"
     )
-    act = PublishedAct(eo_number="0001202010160010", title="...", pdf_url="http://example/pdf")
-    monkeypatch.setattr(draft_yaml, "fetch", lambda url, cache, *, live: b"{}")
-    monkeypatch.setattr(draft_yaml, "parse_search", lambda payload: [act])
-    monkeypatch.setattr(draft_yaml, "extract", lambda pdf_bytes: order_text)
-
-    clauses = draft_yaml._fetch_clauses(ROW, tmp_path, live=False)
-
-    assert [clause.text for clause in clauses] == ["Текст первого стандарта."]
 
 
 # --- End-to-end: appendix slicing regenerates a clean fsbu-6-2020 draft ----
@@ -214,7 +292,7 @@ requires_real_ocr_fixture = pytest.mark.skipif(
 def test_regenerated_fsbu_6_2020_draft_has_no_duplicates_and_matches_gold_clause_count() -> None:
     order_text = _OCR_FIXTURE.read_text(encoding="utf-8")
     clauses = parse_clauses(slice_appendix(order_text, ROW.number))
-    document = yaml.safe_load(render(ROW, clauses))
+    document = yaml.safe_load(render(ROW, clauses, source="ocr"))
     paths = [clause["path"] for clause in document["editions"][0]["clauses"]]
 
     gold = yaml.safe_load(_GOLD_FSBU_6_2020.read_text(encoding="utf-8"))

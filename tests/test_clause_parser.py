@@ -71,6 +71,57 @@ def test_empty_input_yields_no_clauses() -> None:
     assert parse_clauses("") == []
 
 
+# --- Decimal-numbered clauses inserted by a later amending order -----------
+#
+# ПБУ texts amended over many years insert new clauses as "5.1", "7.3",
+# "20.2" rather than as lettered subclauses. Both markers found in the wild
+# are covered: with the closing dot ("5.1.") and without it ("15.1 ...").
+
+_DECIMAL_SAMPLE = """
+5. Организация вправе принять решение о неприменении Стандарта.
+
+5.1. Организация выбирает способ независимо от других организаций.
+
+6. Стандарт не распространяется на капитальные вложения.
+"""
+
+_DECIMAL_SAMPLE_NO_DOT = """
+15. Изменение учетной политики оформляется в установленном порядке.
+
+15.1 Организации вправе применять упрощенные способы учета.
+
+16. Изменения раскрываются в отчетности.
+"""
+
+
+def test_decimal_clause_gets_its_own_path_with_the_closing_dot() -> None:
+    paths = [clause.path for clause in parse_clauses(_DECIMAL_SAMPLE)]
+    assert paths == ["5", "5.1", "6"]
+
+
+def test_decimal_clause_text_excludes_its_own_number() -> None:
+    clause = next(item for item in parse_clauses(_DECIMAL_SAMPLE) if item.path == "5.1")
+    assert clause.text == "Организация выбирает способ независимо от других организаций."
+
+
+def test_decimal_clause_does_not_collide_with_the_plain_clause_of_the_same_leading_number() -> (
+    None
+):
+    clauses = {clause.path: clause for clause in parse_clauses(_DECIMAL_SAMPLE)}
+    assert clauses["5"].text == "Организация вправе принять решение о неприменении Стандарта."
+    assert "5.1" not in clauses["5"].text
+
+
+def test_decimal_clause_without_a_closing_dot_is_still_recognised() -> None:
+    paths = [clause.path for clause in parse_clauses(_DECIMAL_SAMPLE_NO_DOT)]
+    assert paths == ["15", "15.1", "16"]
+
+
+def test_decimal_clause_without_a_closing_dot_has_clean_text() -> None:
+    clause = next(item for item in parse_clauses(_DECIMAL_SAMPLE_NO_DOT) if item.path == "15.1")
+    assert clause.text == "Организации вправе применять упрощенные способы учета."
+
+
 # --- slice_appendix: isolating one standard's appendix ---------------------
 #
 # A single order routinely enacts several standards, each as its own

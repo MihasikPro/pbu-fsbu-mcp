@@ -19,6 +19,20 @@ _PAGE_FURNITURE_RE = re.compile(r"^\[\[PAGE \d+\]\][ \t]*\n(?:\d{1,4}[ \t]*\n)?"
 # period ("25.В бухгалтерском балансе..."), and the marker is unambiguous
 # without it - it only has to be recognised at the very start of a block.
 _CLAUSE_RE = re.compile(r"^(?P<number>\d+)\.\s*")
+
+# A clause inserted between two existing ones by a later amending order is
+# numbered "5.1", "7.3", "20.2" and so on, rather than with a lettered
+# subclause - a common pattern in repeatedly amended ПБУ texts (e.g. ПБУ
+# 1/2008). Tried before `_CLAUSE_RE` so it wins on these markers; otherwise
+# `_CLAUSE_RE` would stop at the first dot and misread "7.3. В исключительных
+# случаях..." as a bare clause "7" - colliding with the real clause 7 that
+# appears earlier in the same document and silently merging their text.
+# The closing dot is optional (`\.?`, not `\.`): the source is inconsistent
+# about it even within the same document - compare "5.1. Организация..."
+# (dot present) with "15.1 Организации..." (dot dropped before the next
+# word) - so both spellings are accepted once the "N.M" shape itself is
+# unambiguous.
+_DECIMAL_CLAUSE_RE = re.compile(r"^(?P<number>\d+\.\d+)\.?\s*")
 _SUBCLAUSE_RE = re.compile(r"^(?P<letter>[а-я])\)\s*")
 
 # `б)` and `з)` are the two subclause markers Tesseract reliably misreads as
@@ -180,7 +194,7 @@ def parse_clauses(text: str) -> list[ParsedClause]:
             last_subclause_letter = subclause_letter
             continue
 
-        clause_match = _CLAUSE_RE.match(block)
+        clause_match = _DECIMAL_CLAUSE_RE.match(block) or _CLAUSE_RE.match(block)
         if clause_match:
             last_top_level = clause_match["number"]
             last_subclause_letter = None

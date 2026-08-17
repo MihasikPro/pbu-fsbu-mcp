@@ -5,12 +5,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 
 REGISTRY_URL = (
     "https://minfin.gov.ru/ru/perfomance/accounting/accounting/standart/positions/"
 )
+MINFIN_BASE_URL = "https://minfin.gov.ru"
 
 _MONTHS = {
     "января": 1,
@@ -62,6 +65,7 @@ class RegistryRow:
     effective_from: date
     effective_to: date | None
     source_url: str
+    document_url: str
 
 
 def _normalise_year(number: str) -> int:
@@ -101,13 +105,29 @@ def _parse_effective_to(text: str) -> date | None:
     return date(int(parsed["year"]), int(parsed["month"]), int(parsed["day"]))
 
 
+def _document_url(title_td: Tag) -> str:
+    """Resolve the standard's own document-page link out of its title cell.
+
+    The registry links every standard's title to `/ru/document?id_4=NNNN` -
+    that page (unlike the order's own link, found elsewhere in the same row)
+    carries the full text of the standard as server-rendered HTML.
+    """
+    link = title_td.find("a", href=True)
+    if link is None:
+        raise ValueError(
+            f"Не найдена ссылка на страницу документа в ячейке {title_td.get_text(strip=True)!r}"
+        )
+    return urljoin(MINFIN_BASE_URL, str(link["href"]))
+
+
 def parse(html: bytes, source_url: str) -> list[RegistryRow]:
     """Extract every standard from the registry page."""
     soup = BeautifulSoup(html, "lxml")
     rows: list[RegistryRow] = []
 
     for tr in soup.find_all("tr"):
-        cells = [td.get_text(" ", strip=True) for td in tr.find_all("td")]
+        tds = tr.find_all("td")
+        cells = [td.get_text(" ", strip=True) for td in tds]
         if len(cells) < 3:
             continue
 
@@ -118,6 +138,9 @@ def parse(html: bytes, source_url: str) -> list[RegistryRow]:
 
         kind = title_match["kind"]
         number = title_match["number"]
+
+        title_td = next((td for td in tds if _TITLE_RE.search(td.get_text(" ", strip=True))), None)
+        assert title_td is not None
 
         order_cell = next((cell for cell in cells if _ORDER_RE.search(cell)), None)
         if order_cell is None:
@@ -141,6 +164,7 @@ def parse(html: bytes, source_url: str) -> list[RegistryRow]:
                 effective_from=_parse_effective_from(effective_from_text),
                 effective_to=_parse_effective_to(joined),
                 source_url=source_url,
+                document_url=_document_url(title_td),
             )
         )
 
