@@ -92,6 +92,16 @@ class Corpus:
         row = self._connection.execute("SELECT built_at FROM corpus_meta").fetchone()
         return date.fromisoformat(row["built_at"])
 
+    def is_populated(self) -> bool:
+        """True if the corpus actually contains a built standard, not just an empty schema.
+
+        A schema-only or literally empty SQLite file opens successfully and answers
+        every query with zero rows - it must not be mistaken for a ready corpus.
+        """
+        (meta_count,) = self._connection.execute("SELECT COUNT(*) FROM corpus_meta").fetchone()
+        (standard_count,) = self._connection.execute("SELECT COUNT(*) FROM standard").fetchone()
+        return bool(meta_count) and bool(standard_count)
+
     def list_standards(self, on_date: date, kind: str | None = None) -> list[StandardSummary]:
         query = "SELECT * FROM standard"
         params: tuple[str, ...] = ()
