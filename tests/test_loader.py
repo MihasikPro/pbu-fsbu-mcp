@@ -1,0 +1,70 @@
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+from pbu_fsbu_mcp.loader import load_all, load_standard
+
+SOURCES = Path(__file__).resolve().parents[1] / "data" / "sources" / "standards"
+
+
+def test_loads_reference_standard() -> None:
+    standard = load_standard(SOURCES / "fsbu-6-2020.yaml")
+    assert standard.id == "fsbu-6-2020"
+    assert standard.effective_from == date(2022, 1, 1)
+    assert len(standard.editions) == 1
+
+
+def test_reference_standard_has_clauses() -> None:
+    standard = load_standard(SOURCES / "fsbu-6-2020.yaml")
+    paths = {clause.path for clause in standard.editions[0].clauses}
+    assert "1" in paths
+    assert "4.а" in paths
+
+
+def test_clause_ids_are_unique_within_edition() -> None:
+    standard = load_standard(SOURCES / "fsbu-6-2020.yaml")
+    clauses = standard.editions[0].clauses
+    assert len({clause.id for clause in clauses}) == len(clauses)
+
+
+def test_load_all_reads_directory() -> None:
+    standards = load_all(SOURCES)
+    assert any(standard.id == "fsbu-6-2020" for standard in standards)
+
+
+def test_duplicate_clause_path_is_rejected(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.yaml"
+    broken.write_text(
+        "\n".join(
+            [
+                "id: broken-1-2020",
+                "kind: ФСБУ",
+                'number: "1/2020"',
+                "year: 2020",
+                "title: Тест",
+                "order_date: 2020-01-01",
+                "order_no: 1н",
+                "effective_from: 2021-01-01",
+                "effective_to: null",
+                "superseded_by: null",
+                "source_url: https://example.org/",
+                "editions:",
+                "  - edition_no: 1",
+                "    amending_order: null",
+                "    effective_from: 2021-01-01",
+                "    clauses:",
+                '      - path: "1"',
+                "        parent_path: null",
+                "        heading: null",
+                "        text: Первый",
+                '      - path: "1"',
+                "        parent_path: null",
+                "        heading: null",
+                "        text: Дубль",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="duplicate clause path"):
+        load_standard(broken)
