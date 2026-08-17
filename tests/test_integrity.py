@@ -50,3 +50,18 @@ def test_missing_fts_row_is_reported(corpus_db: Path, tmp_path: Path) -> None:
 
     violations = check(copy)
     assert any("clause_fts" in violation for violation in violations)
+
+
+def test_empty_but_valid_corpus_is_rejected(tmp_path: Path) -> None:
+    """The one failure mode this project already hit: schema fine, corpus empty."""
+    empty = tmp_path / "empty.db"
+    schema = (
+        Path(__file__).resolve().parents[1] / "src" / "pbu_fsbu_mcp" / "schema.sql"
+    ).read_text(encoding="utf-8")
+    connection = sqlite3.connect(empty)
+    connection.executescript(schema)
+    connection.commit()
+    connection.close()
+
+    violations = check(empty)
+    assert any("таблица пуста" in violation for violation in violations)

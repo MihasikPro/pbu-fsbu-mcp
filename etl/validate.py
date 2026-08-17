@@ -7,6 +7,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from pbu_fsbu_mcp.db import read_only_uri
+
 _CHECKS: tuple[tuple[str, str], ...] = (
     (
         "clause: пункт ссылается на несуществующую редакцию",
@@ -76,11 +78,27 @@ _CHECKS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _check_not_empty(connection: sqlite3.Connection) -> list[str]:
+    """Reject a corpus that is structurally perfect and contains nothing.
+
+    Every referential check below passes trivially on an empty database, so
+    without this the validator would wave through exactly the failure this
+    project already hit once: a build that died midway and left a valid but
+    empty corpus, indistinguishable from a good one to anything downstream.
+    """
+    violations: list[str] = []
+    for table in ("standard", "edition", "clause", "clause_fts"):
+        (count,) = connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        if count == 0:
+            violations.append(f"{table}: таблица пуста - корпус собран некорректно")
+    return violations
+
+
 def check(db_path: Path) -> list[str]:
     """Return a list of human-readable integrity violations."""
-    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    connection = sqlite3.connect(read_only_uri(db_path), uri=True)
     try:
-        violations: list[str] = []
+        violations: list[str] = _check_not_empty(connection)
         for label, sql in _CHECKS:
             offenders = [str(row[0]) for row in connection.execute(sql).fetchall()]
             if offenders:
