@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -7,8 +8,36 @@ from etl.ocr_text import extract, has_text_layer, normalise_hyphenation
 FIXTURE = Path(__file__).parent / "fixtures" / "order_204n.pdf"
 
 
+def _tesseract_unavailable_reason() -> str | None:
+    """Return why Tesseract can't run the OCR tests, or None if it can.
+
+    Probes the actual binary (honouring `TESSERACT_CMD`, same as `ocr_text.extract`)
+    instead of assuming a fixed install path, so this works unmodified on any OS.
+    """
+    import pytesseract
+
+    tesseract_cmd = os.environ.get("TESSERACT_CMD")
+    if tesseract_cmd:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+
+    try:
+        languages = pytesseract.get_languages(config="")
+    except pytesseract.TesseractNotFoundError:
+        return "tesseract binary not found (set TESSERACT_CMD or add it to PATH)"
+
+    if "rus" not in languages:
+        return "tesseract 'rus' language model not installed (set TESSDATA_PREFIX)"
+
+    return None
+
+
+_SKIP_REASON = _tesseract_unavailable_reason()
+
+
 @pytest.fixture(scope="session")
 def first_pages_text() -> str:
+    if _SKIP_REASON is not None:
+        pytest.skip(_SKIP_REASON)
     return extract(FIXTURE.read_bytes(), pages=range(3, 5))
 
 

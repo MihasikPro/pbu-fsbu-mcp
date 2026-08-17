@@ -84,3 +84,26 @@ uv run pytest
 
 Источник истины — YAML в `data/sources/`. Файл `data/build/pbu_fsbu.db` собирается из них
 и в репозиторий не коммитится.
+
+### OCR-тесты и Tesseract
+
+`uv run --group etl pytest` включает тесты распознавания (`tests/test_ocr_text.py`),
+которым нужен установленный локально Tesseract 5.x с моделью `rus`. Если бинарник
+или модель не найдены, эти тесты автоматически пропускаются (`SKIPPED`) — остальной
+набор тестов от этого не зависит.
+
+Чтобы OCR-тесты реально выполнялись, установите Tesseract 5.x с языковым пакетом `rus`
+и, если он не в стандартном расположении, укажите пути через переменные окружения:
+
+- `TESSERACT_CMD` — путь к исполняемому файлу `tesseract` (нужно, если бинарник не в `PATH`).
+- `TESSDATA_PREFIX` — путь к каталогу с моделями (`*.traineddata`), если он нестандартный.
+
+Например, на Windows:
+
+```powershell
+$env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
+$env:TESSDATA_PREFIX = "C:\Users\<user>\.tessdata"
+uv run --group etl pytest
+```
+
+В CI (Ubuntu) Tesseract и модель `rus` ставятся через `apt-get` — см. `.github/workflows/ci.yml`.
