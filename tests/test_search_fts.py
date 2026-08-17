@@ -37,10 +37,19 @@ def test_query_with_no_matches_returns_empty_list(backend: FtsSearchBackend) -> 
 
 
 def test_special_characters_do_not_break_fts(backend: FtsSearchBackend) -> None:
-    assert backend.search('пункт "9" AND OR *', None, TODAY, limit=5) is not None
+    """FTS5 operators in user input must be literals, not syntax - and never raise."""
+    hits = backend.search('пункт "9" AND OR *', None, TODAY, limit=5)
+    assert all(hit.standard_id == "fsbu-6-2020" for hit in hits)
 
 
 def test_hits_carry_snippet_and_score(backend: FtsSearchBackend) -> None:
     hits = backend.search("требований", None, TODAY, limit=5)
     assert hits[0].snippet
     assert hits[0].standard_title == "Основные средства"
+
+
+def test_score_is_higher_is_better(backend: FtsSearchBackend) -> None:
+    """Pins the bm25 sign convention: dropping the negation must fail a test."""
+    hits = backend.search("основных средств", None, TODAY, limit=10)
+    assert len(hits) > 1
+    assert hits[0].score >= hits[-1].score
