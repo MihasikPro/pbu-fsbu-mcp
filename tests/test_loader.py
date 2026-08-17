@@ -69,3 +69,91 @@ def test_duplicate_clause_path_is_rejected(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="duplicate clause path"):
         load_standard(broken)
+
+
+def test_missing_edition_no_raises_value_error_with_path(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.yaml"
+    broken.write_text(
+        dedent(
+            """\
+            id: broken-1-2020
+            kind: ФСБУ
+            number: "1/2020"
+            year: 2020
+            title: Тест
+            order_date: 2020-01-01
+            order_no: 1н
+            effective_from: 2021-01-01
+            effective_to: null
+            superseded_by: null
+            source_url: https://example.org/
+            editions:
+              - amending_order: null
+                effective_from: 2021-01-01
+                clauses: []
+            """
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=r"broken\.yaml.*edition_no") as excinfo:
+        load_standard(broken)
+    assert str(broken) in str(excinfo.value)
+
+
+def test_missing_clause_path_raises_value_error_with_path(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.yaml"
+    broken.write_text(
+        dedent(
+            """\
+            id: broken-1-2020
+            kind: ФСБУ
+            number: "1/2020"
+            year: 2020
+            title: Тест
+            order_date: 2020-01-01
+            order_no: 1н
+            effective_from: 2021-01-01
+            effective_to: null
+            superseded_by: null
+            source_url: https://example.org/
+            editions:
+              - edition_no: 1
+                amending_order: null
+                effective_from: 2021-01-01
+                clauses:
+                  - parent_path: null
+                    heading: null
+                    text: Пункт без пути.
+            """
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=r"broken\.yaml.*path") as excinfo:
+        load_standard(broken)
+    assert str(broken) in str(excinfo.value)
+
+
+def test_load_all_rejects_duplicate_standard_id_across_files(tmp_path: Path) -> None:
+    directory = tmp_path / "sources"
+    directory.mkdir()
+    duplicate = dedent(
+        """\
+        id: broken-1-2020
+        kind: ФСБУ
+        number: "1/2020"
+        year: 2020
+        title: Тест
+        order_date: 2020-01-01
+        order_no: 1н
+        effective_from: 2021-01-01
+        effective_to: null
+        superseded_by: null
+        source_url: https://example.org/
+        editions: []
+        """
+    )
+    (directory / "a.yaml").write_text(duplicate, encoding="utf-8")
+    (directory / "b.yaml").write_text(duplicate, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="already declared"):
+        load_all(directory)

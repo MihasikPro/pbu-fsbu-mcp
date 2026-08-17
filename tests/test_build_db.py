@@ -8,14 +8,11 @@ from etl.build_db import build
 
 SOURCES = Path(__file__).resolve().parents[1] / "data" / "sources" / "standards"
 
-# Two YAML files that each pass the loader individually but collide on insert.
-# Both declare the same top-level `id`, so the second file's `standard` row
-# hits the table's PRIMARY KEY constraint. Colliding directly on the `clause`
-# table's UNIQUE(edition_id, path) is unreachable: the loader always derives
-# `edition.standard_id` from the top-level `id`, so two files whose clauses
-# would collide on `edition_id` necessarily collide on `standard.id` first -
-# and that fails before a single clause of the second file is inserted. This
-# still exercises a genuine insert-phase failure (past the loader, mid-build).
+# Two YAML files that each pass the loader individually but declare the same
+# top-level `id`. `load_all` now rejects this at load time (ValueError, with
+# both file names) before `build()` ever opens the temporary database, so this
+# fixture now exercises the atomicity of `build()` on a load-time failure
+# rather than an insert-phase `sqlite3.IntegrityError`.
 _COLLIDING_STANDARD_A = """\
 id: exp-std-collision
 kind: ФСБУ
@@ -129,7 +126,7 @@ def test_failed_rebuild_leaves_existing_database_untouched(tmp_path: Path) -> No
     bad_sources = tmp_path / "bad_sources"
     _write_colliding_sources(bad_sources)
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(ValueError, match="already declared"):
         build(bad_sources, output, built_at=date(2026, 8, 16))
 
     connection = sqlite3.connect(output)
@@ -145,7 +142,7 @@ def test_failed_rebuild_leaves_no_temporary_file(tmp_path: Path) -> None:
     bad_sources = tmp_path / "bad_sources"
     _write_colliding_sources(bad_sources)
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(ValueError, match="already declared"):
         build(bad_sources, output, built_at=date(2026, 8, 16))
 
     assert sorted(p.name for p in output.parent.iterdir()) == [output.name]

@@ -24,13 +24,22 @@ def load_standard(path: Path) -> Standard:
     if not isinstance(standard_id, str):
         raise ValueError(f"{path}: missing string field 'id'")  # noqa: TRY004
 
-    for edition in raw.get("editions") or []:
+    for edition_index, edition in enumerate(raw.get("editions") or []):
         edition["standard_id"] = standard_id
+        if "edition_no" not in edition:
+            raise ValueError(
+                f"{path}: издание #{edition_index} не содержит обязательное поле 'edition_no'"
+            )
         edition_id = f"{standard_id}@{edition['edition_no']}"
         seen: set[str] = set()
-        for clause in edition.get("clauses") or []:
+        for clause_index, clause in enumerate(edition.get("clauses") or []):
             clause["standard_id"] = standard_id
             clause["edition_id"] = edition_id
+            if "path" not in clause:
+                raise ValueError(
+                    f"{path}: пункт #{clause_index} издания {edition_id!r} не содержит"
+                    " обязательное поле 'path'"
+                )
             clause_path = clause["path"]
             if clause_path in seen:
                 raise ValueError(f"{path}: duplicate clause path {clause_path!r}")
@@ -40,5 +49,21 @@ def load_standard(path: Path) -> Standard:
 
 
 def load_all(directory: Path) -> list[Standard]:
-    """Load every `*.yaml` in `directory`, sorted by file name."""
-    return [load_standard(path) for path in sorted(directory.glob("*.yaml"))]
+    """Load every `*.yaml` in `directory`, sorted by file name.
+
+    Two files declaring the same standard `id` would otherwise reach the builder
+    intact and fail as an opaque `sqlite3.IntegrityError` on the `standard` table's
+    primary key - this catches it at load time, with the offending file names.
+    """
+    standards: list[Standard] = []
+    source_by_id: dict[str, Path] = {}
+    for source_path in sorted(directory.glob("*.yaml")):
+        standard = load_standard(source_path)
+        if standard.id in source_by_id:
+            raise ValueError(
+                f"{source_path}: standard id {standard.id!r} is already declared in "
+                f"{source_by_id[standard.id]}"
+            )
+        source_by_id[standard.id] = source_path
+        standards.append(standard)
+    return standards
