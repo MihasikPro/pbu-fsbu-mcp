@@ -72,6 +72,9 @@ class Standard(BaseModel):
         return self
 
     def status_on(self, on_date: date) -> StandardStatus:
+        # Imported here, not at module level, on purpose: `temporal` imports
+        # StandardStatus from this module, so a top-level import would be circular.
+        # The in-force rule lives in `temporal` alone - do not reimplement it here.
         from pbu_fsbu_mcp.temporal import status_on
 
         return status_on(self.effective_from, self.effective_to, on_date)
