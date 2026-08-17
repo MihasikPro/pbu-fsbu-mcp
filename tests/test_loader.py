@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -36,33 +37,33 @@ def test_load_all_reads_directory() -> None:
 def test_duplicate_clause_path_is_rejected(tmp_path: Path) -> None:
     broken = tmp_path / "broken.yaml"
     broken.write_text(
-        "\n".join(
-            [
-                "id: broken-1-2020",
-                "kind: ФСБУ",
-                'number: "1/2020"',
-                "year: 2020",
-                "title: Тест",
-                "order_date: 2020-01-01",
-                "order_no: 1н",
-                "effective_from: 2021-01-01",
-                "effective_to: null",
-                "superseded_by: null",
-                "source_url: https://example.org/",
-                "editions:",
-                "  - edition_no: 1",
-                "    amending_order: null",
-                "    effective_from: 2021-01-01",
-                "    clauses:",
-                '      - path: "1"',
-                "        parent_path: null",
-                "        heading: null",
-                "        text: Первый",
-                '      - path: "1"',
-                "        parent_path: null",
-                "        heading: null",
-                "        text: Дубль",
-            ]
+        dedent(
+            """\
+            id: broken-1-2020
+            kind: ФСБУ
+            number: "1/2020"
+            year: 2020
+            title: Тест
+            order_date: 2020-01-01
+            order_no: 1н
+            effective_from: 2021-01-01
+            effective_to: null
+            superseded_by: null
+            source_url: https://example.org/
+            editions:
+              - edition_no: 1
+                amending_order: null
+                effective_from: 2021-01-01
+                clauses:
+                  - path: "1"
+                    parent_path: null
+                    heading: null
+                    text: Первый
+                  - path: "1"
+                    parent_path: null
+                    heading: null
+                    text: Дубль
+            """
         ),
         encoding="utf-8",
     )

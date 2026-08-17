@@ -574,6 +574,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pymorphy3" },
     { name = "pyyaml" },
+    { name = "starlette" },
 ]
 
 [package.dev-dependencies]
@@ -590,13 +591,14 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pymorphy3", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "starlette", specifier = ">=0.40" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.11" },
     { name = "pytest", specifier = ">=8.0" },
-    { name = "ruff", specifier = ">=0.6" },
+    { name = "ruff", specifier = ">=0.16,<0.17" },
     { name = "types-pyyaml" },
 ]
 

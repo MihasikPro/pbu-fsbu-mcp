@@ -19,7 +19,9 @@ dependencies = [
 pbu-fsbu-mcp = "pbu_fsbu_mcp.server:cli"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11", "types-PyYAML"]
+# ruff is pinned to a minor range on purpose: its default rule set changes between
+# minor versions, so an unbounded range silently changes what CI enforces.
+dev = ["pytest>=8.0", "ruff>=0.16,<0.17", "mypy>=1.11", "types-PyYAML"]
 
 [build-system]
 requires = ["hatchling"]
