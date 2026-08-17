@@ -1,0 +1,42 @@
+name: etl-watch
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv sync --all-groups
+
+      - name: Compare live registry against corpus
+        id: watch
+        continue-on-error: true
+        run: uv run --group etl python -m etl.watch --live --report registry-diff.md
+
+      - name: Refresh registry fixture
+        if: steps.watch.outcome == 'failure'
+        run: >
+          uv run --group etl python -m etl.watch
+          --save-fixture tests/fixtures/minfin_registry.html
+          --report registry-diff.md
+
+      - name: Open pull request
+        if: steps.watch.outcome == 'failure'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: etl/registry-drift
+          title: "Реестр Минфина разошёлся с корпусом"
+          body-path: registry-diff.md
+          labels: etl, needs-human-review
+          commit-message: "chore: refresh Minfin registry fixture"
