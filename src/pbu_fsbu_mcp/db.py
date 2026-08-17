@@ -144,6 +144,12 @@ class Corpus:
             ).fetchone()
             parent_heading = parent_row["heading"] if parent_row else None
 
+        children_rows = self._connection.execute(
+            "SELECT path FROM clause WHERE edition_id = ? AND parent_path = ? ORDER BY rowid",
+            (edition.edition_id, clause_row["path"]),
+        ).fetchall()
+        children = [row["path"] for row in children_rows]
+
         return ClauseResponse(
             standard_id=standard_id,
             standard_title=standard_row["title"],
@@ -161,6 +167,7 @@ class Corpus:
             ),
             order_ref=_format_order_ref(standard_row["order_date"], standard_row["order_no"]),
             source_url=standard_row["source_url"],
+            children=children,
         )
 
     def _edition(self, standard_id: str, on_date: date) -> EditionRef:

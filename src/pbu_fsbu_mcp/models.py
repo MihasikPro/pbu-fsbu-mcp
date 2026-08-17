@@ -112,6 +112,7 @@ class ClauseResponse(BaseModel):
     status: StandardStatus
     order_ref: str
     source_url: str
+    children: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

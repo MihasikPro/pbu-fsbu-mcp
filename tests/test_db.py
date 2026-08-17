@@ -73,6 +73,23 @@ def test_corpus_connection_rejects_writes(corpus: Corpus) -> None:
         corpus._connection.execute("DELETE FROM clause")
 
 
+def test_clause_13_text_does_not_contain_the_concluding_sentence(corpus: Corpus) -> None:
+    """Clause 13's text must stop at the lead-in; а)/б) sit between it and the conclusion."""
+    clause = corpus.get_clause("fsbu-6-2020", "13", TODAY)
+    assert "Выбранный способ последующей оценки" not in clause.text
+
+
+def test_clause_13_conclusion_is_its_own_child_clause(corpus: Corpus) -> None:
+    clause = corpus.get_clause("fsbu-6-2020", "13.заключение", TODAY)
+    assert clause.parent_path == "13"
+    assert "Выбранный способ последующей оценки" in clause.text
+
+
+def test_clause_13_reports_children_in_document_order(corpus: Corpus) -> None:
+    clause = corpus.get_clause("fsbu-6-2020", "13", TODAY)
+    assert clause.children == ["13.а", "13.б", "13.заключение"]
+
+
 def test_corpus_opens_under_a_path_containing_a_hash(
     corpus_db: Path, tmp_path: Path
 ) -> None:
