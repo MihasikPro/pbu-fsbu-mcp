@@ -43,6 +43,30 @@ _SECTION_RE = re.compile(r"^(?P<marker>[^\s.]{1,6})\.\s+(?P<heading>.+)$")
 _HEADING_MAX_WORDS = 6
 _SENTENCE_END = (".", ",", ";", ":")
 
+# An appendix opens with a standalone line naming the standard it carries -
+# e.g. "ФСБУ 6/2020 «Основные средства»", usually directly under its own
+# "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА" caption - and nothing else
+# shares that paragraph: the line starts right after a newline (or the start
+# of text) and is followed immediately by a blank line or the end of the
+# document. That is what separates a genuine appendix header from the same
+# standard being *mentioned* in running prose (order preambles routinely
+# list every standard the order enacts, e.g. "...ФСБУ 6/2020 «Основные
+# средства» и ФСБУ 26/2020 «Капитальные..." wrapped across lines) - a
+# mention is always followed by more text in the same paragraph, never by a
+# paragraph break. The caption line is matched only when it immediately
+# precedes the title with no blank line between them, so that slicing on
+# this anchor's start does not glue it onto the *previous* appendix's last
+# clause. Quotes are matched tolerantly (OCR flips between «» and straight
+# quotes); the standard's number is matched and compared exactly, so two
+# different standards can never resolve to the same anchor.
+_APPENDIX_ANCHOR_RE = re.compile(
+    r"^(?:ФЕДЕРАЛЬНЫЙ\s+СТАНДАРТ\s+БУХГАЛТЕРСКОГО\s+УЧЕТА[ \t]*\n[ \t]*)?"
+    r"(?:ФСБУ|ПБУ)[ \t]*(?P<number>\d+[ \t]*/[ \t]*\d+)[ \t]*"
+    r"[«\"'][^»\"'\n]*[»\"'][ \t]*"
+    r"(?=\n[ \t]*\n|\Z)",
+    re.MULTILINE,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ParsedClause:
@@ -68,6 +92,51 @@ class _OpenClause:
             heading=self.heading,
             text=" ".join(part for part in self.parts if part).strip(),
         )
+
+
+def slice_appendix(text: str, standard_number: str) -> str:
+    """Return only the appendix of `text` that enacts `standard_number`.
+
+    A single Ministry of Finance order routinely enacts several standards at
+    once, each as a separate numbered appendix in one PDF. Passing the whole
+    order to `parse_clauses` pulls in every appendix's clauses at once, so
+    the caller must slice out the one appendix it wants first.
+
+    The slice runs from the standard's own header line (see
+    `_APPENDIX_ANCHOR_RE`) up to the next appendix's header line, or to the
+    end of the text if it is the last (or only) appendix.
+
+    An order enacting a single standard carries no such header at all - it
+    goes straight from the preamble into "I. Общие положения" - so `text` is
+    returned unchanged in that case, never emptied. If the order enacts
+    several standards but `standard_number` is not one of them, that is a
+    real error: raises `ValueError` naming what was looked for and what was
+    actually found.
+    """
+    anchors = [
+        (match.start(), _normalise_appendix_number(match["number"]))
+        for match in _APPENDIX_ANCHOR_RE.finditer(text)
+    ]
+    if not anchors:
+        return text
+
+    target = _normalise_appendix_number(standard_number)
+    starts = [offset for offset, number in anchors if number == target]
+    if not starts:
+        found = ", ".join(sorted({number for _, number in anchors}))
+        raise ValueError(
+            f"В тексте не найдено приложение для стандарта {standard_number!r} "
+            f"(в документе найдены приложения для: {found})"
+        )
+
+    start = starts[0]
+    later_starts = [offset for offset, _ in anchors if offset > start]
+    return text[start : min(later_starts)] if later_starts else text[start:]
+
+
+def _normalise_appendix_number(number: str) -> str:
+    """Drop internal whitespace so `"6/2020"` and OCR's `"6 / 2020"` compare equal."""
+    return re.sub(r"\s+", "", number)
 
 
 def parse_clauses(text: str) -> list[ParsedClause]:

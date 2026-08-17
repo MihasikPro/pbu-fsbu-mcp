@@ -5,7 +5,7 @@ import pytest
 import yaml
 
 from etl import draft_yaml
-from etl.clause_parser import ParsedClause
+from etl.clause_parser import ParsedClause, parse_clauses, slice_appendix
 from etl.draft_yaml import render
 from etl.pravo import PublishedAct
 from etl.registry import RegistryRow
@@ -174,6 +174,57 @@ def test_main_writes_a_draft_that_round_trips_through_render(
     draft_yaml.main(["--cache", str(tmp_path / "cache"), "--out", str(out)])
 
     assert (out / f"{ROW.id}.yaml").read_text(encoding="utf-8") == render(ROW, CLAUSES)
+
+
+def test_fetch_clauses_slices_the_order_to_the_requested_standard_before_parsing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order_text = (
+        "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА\nФСБУ 6/2020 «Основные средства»\n\n"
+        "1. Текст первого стандарта.\n\n"
+        "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА\nФСБУ 26/2020 «Капитальные вложения»\n\n"
+        "1. Текст второго стандарта.\n"
+    )
+    act = PublishedAct(eo_number="0001202010160010", title="...", pdf_url="http://example/pdf")
+    monkeypatch.setattr(draft_yaml, "fetch", lambda url, cache, *, live: b"{}")
+    monkeypatch.setattr(draft_yaml, "parse_search", lambda payload: [act])
+    monkeypatch.setattr(draft_yaml, "extract", lambda pdf_bytes: order_text)
+
+    clauses = draft_yaml._fetch_clauses(ROW, tmp_path, live=False)
+
+    assert [clause.text for clause in clauses] == ["Текст первого стандарта."]
+
+
+# --- End-to-end: appendix slicing regenerates a clean fsbu-6-2020 draft ----
+# Real OCR fixture (gitignored .superpowers artifact, see test_clause_parser.py
+# for the full rationale); skips gracefully when absent. No network call and
+# no OCR call - the fixture is already-recognised text.
+
+_REPO_ROOT = Path(__file__).parent.parent
+_OCR_FIXTURE = _REPO_ROOT / ".superpowers" / "sdd" / "source" / "prikaz_204n_ocr.txt"
+_GOLD_FSBU_6_2020 = _REPO_ROOT / "data" / "sources" / "standards" / "fsbu-6-2020.yaml"
+
+requires_real_ocr_fixture = pytest.mark.skipif(
+    not _OCR_FIXTURE.exists(),
+    reason="real OCR fixture (.superpowers/sdd/source/prikaz_204n_ocr.txt) is not committed to the repo",
+)
+
+
+@requires_real_ocr_fixture
+def test_regenerated_fsbu_6_2020_draft_has_no_duplicates_and_matches_gold_clause_count() -> None:
+    order_text = _OCR_FIXTURE.read_text(encoding="utf-8")
+    clauses = parse_clauses(slice_appendix(order_text, ROW.number))
+    document = yaml.safe_load(render(ROW, clauses))
+    paths = [clause["path"] for clause in document["editions"][0]["clauses"]]
+
+    gold = yaml.safe_load(_GOLD_FSBU_6_2020.read_text(encoding="utf-8"))
+    gold_paths = [clause["path"] for clause in gold["editions"][0]["clauses"]]
+    # The two ".заключение" splits in the gold file are a manual editorial
+    # correction that no text-only parser can reproduce (see test_clause_parser.py).
+    reproducible_gold_paths = {path for path in gold_paths if "заключение" not in path}
+
+    assert len(paths) == len(set(paths)), "duplicate clause paths in the regenerated draft"
+    assert set(paths) == reproducible_gold_paths
 
 
 def test_main_threads_the_live_flag_into_fetch(

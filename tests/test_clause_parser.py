@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from etl.clause_parser import parse_clauses
+from etl.clause_parser import parse_clauses, slice_appendix
 
 SAMPLE = """
 I. Общие положения
@@ -69,6 +69,64 @@ def test_headings_are_not_emitted_as_clauses() -> None:
 
 def test_empty_input_yields_no_clauses() -> None:
     assert parse_clauses("") == []
+
+
+# --- slice_appendix: isolating one standard's appendix ---------------------
+#
+# A single order routinely enacts several standards, each as its own
+# appendix. `slice_appendix` anchors on the standard's own header line
+# ("ФСБУ N/YYYY «Title»" as the sole content of its paragraph) rather than
+# on the "Приложение № N" caption, whose numbering does not say which
+# standard it belongs to.
+
+_TWO_APPENDIX_SAMPLE = """Преамбула упоминает ФСБУ 9/2021 «Декоративный» и ФСБУ 10/2021 «Другой»
+в одном предложении - это не заголовок приложения, а простое перечисление.
+
+ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА
+ФСБУ 9/2021 «Декоративный»
+
+1. Текст пункта первого стандарта.
+
+ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА
+ФСБУ 10/2021 «Другой»
+
+1. Текст пункта второго стандарта.
+"""
+
+
+def test_slice_appendix_starts_at_the_real_header_not_the_preamble_mention() -> None:
+    sliced = slice_appendix(_TWO_APPENDIX_SAMPLE, "9/2021")
+    assert sliced.startswith("ФЕДЕРАЛЬНЫЙ СТАНДАРТ")
+    assert "Преамбула" not in sliced
+
+
+def test_slice_appendix_excludes_the_next_appendix() -> None:
+    sliced = slice_appendix(_TWO_APPENDIX_SAMPLE, "9/2021")
+    assert "Текст пункта первого стандарта" in sliced
+    assert "Текст пункта второго стандарта" not in sliced
+
+
+def test_slice_appendix_for_the_second_standard_is_the_complement() -> None:
+    sliced = slice_appendix(_TWO_APPENDIX_SAMPLE, "10/2021")
+    assert "Текст пункта второго стандарта" in sliced
+    assert "Текст пункта первого стандарта" not in sliced
+
+
+def test_slice_appendix_on_single_appendix_text_returns_it_unchanged() -> None:
+    single = "1. Пункт первый.\n\n2. Пункт второй."
+    assert slice_appendix(single, "6/2020") == single
+
+
+def test_slice_appendix_raises_for_a_standard_absent_from_a_multi_appendix_document() -> None:
+    with pytest.raises(ValueError, match="11/2021"):
+        slice_appendix(_TWO_APPENDIX_SAMPLE, "11/2021")
+
+
+def test_slice_appendix_does_not_confuse_a_number_with_its_suffix() -> None:
+    # "6/2020" must not match inside "26/2020" - a naive substring check would.
+    only_26 = "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА\nФСБУ 26/2020 «Капитальные вложения»\n\n1. Текст."
+    with pytest.raises(ValueError, match="6/2020"):
+        slice_appendix(only_26, "6/2020")
 
 
 # --- Regression against the real OCR of order 204n -------------------------
@@ -179,3 +237,34 @@ def test_section_heading_colliding_with_clause_1_is_not_emitted_as_a_clause() ->
     # "1. Общие положения" is the section-I heading; it must not also surface
     # as a garbage duplicate of clause "1".
     assert sum(1 for clause in parsed if clause.path == "1") == 1
+
+
+# --- slice_appendix against the real order 204n (two standards, one PDF) ---
+
+
+def _real_order_text() -> str:
+    return _OCR_FIXTURE.read_text(encoding="utf-8")
+
+
+@requires_real_ocr_fixture
+def test_slice_appendix_fsbu_6_2020_contains_clause_52_and_not_fsbu_26_2020() -> None:
+    clauses = {c.path: c for c in parse_clauses(slice_appendix(_real_order_text(), "6/2020"))}
+    assert "52" in clauses
+    # "Капитальные вложения" is FSBU 26/2020's own title; it appears nowhere
+    # inside FSBU 6/2020's appendix once the neighbouring one is sliced out.
+    assert all("Капитальные вложения" not in c.text for c in clauses.values())
+
+
+@requires_real_ocr_fixture
+def test_slice_appendix_fsbu_26_2020_is_the_complement_of_fsbu_6_2020() -> None:
+    clauses = {c.path: c for c in parse_clauses(slice_appendix(_real_order_text(), "26/2020"))}
+    # "Основные средства" is FSBU 6/2020's own title; absent once its
+    # appendix has been sliced away from FSBU 26/2020's.
+    assert all("Основные средства" not in c.text for c in clauses.values())
+
+
+@requires_real_ocr_fixture
+def test_slice_appendix_fsbu_6_2020_matches_the_hand_verified_clause_set() -> None:
+    parsed_paths = {c.path for c in parse_clauses(slice_appendix(_real_order_text(), "6/2020"))}
+    top_level, lettered = _gold_clause_paths()
+    assert parsed_paths == top_level | lettered

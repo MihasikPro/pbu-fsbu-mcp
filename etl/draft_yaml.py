@@ -14,7 +14,7 @@ from typing import Any
 
 import yaml
 
-from etl.clause_parser import ParsedClause, parse_clauses
+from etl.clause_parser import ParsedClause, parse_clauses, slice_appendix
 from etl.http_client import fetch
 from etl.ocr_text import extract
 from etl.pravo import parse_search, search_url
@@ -71,7 +71,8 @@ def _fetch_clauses(row: RegistryRow, cache_dir: Path, *, live: bool) -> list[Par
             f"от {row.order_date:%d.%m.%Y}"
         )
     pdf_bytes = fetch(acts[0].pdf_url, cache_dir, live=live)
-    return parse_clauses(extract(pdf_bytes))
+    order_text = extract(pdf_bytes)
+    return parse_clauses(slice_appendix(order_text, row.number))
 
 
 def main(argv: list[str] | None = None) -> int:
