@@ -1,6 +1,6 @@
 import pytest
 
-from pbu_fsbu_mcp.search.morphology import lemmatize
+from pbu_fsbu_mcp.search.morphology import PROTECTED_TERMS, lemmatize
 
 
 @pytest.mark.parametrize(
@@ -18,7 +18,7 @@ def test_single_word_is_normalised(source: str, expected_lemma: str) -> None:
     assert lemmatize(source) == expected_lemma
 
 
-@pytest.mark.parametrize("term", ["фсбу", "пбу", "нма", "мпз", "ппа", "спи"])
+@pytest.mark.parametrize("term", sorted(PROTECTED_TERMS))
 def test_domain_abbreviations_survive_lemmatisation(term: str) -> None:
     assert lemmatize(term) == term
 
@@ -42,6 +42,7 @@ def test_digits_are_preserved() -> None:
 
 def test_phrase_case_uses_context_dependent_lemma() -> None:
     """«Основные» и «основными» дают разные леммы - это поведение pymorphy3."""
+    assert lemmatize("основными") == "основный"
     assert lemmatize("Основные средства") == "основной средство"
 
 

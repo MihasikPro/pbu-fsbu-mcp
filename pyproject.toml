@@ -37,6 +37,11 @@ python_version = "3.12"
 strict = true
 files = ["src", "etl"]
 
+[[tool.mypy.overrides]]
+# pymorphy3 ships no py.typed marker and no stub package.
+module = "pymorphy3"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # The default temp root (%LOCALAPPDATA%\Temp\pytest-of-<user>) is ACL-locked on

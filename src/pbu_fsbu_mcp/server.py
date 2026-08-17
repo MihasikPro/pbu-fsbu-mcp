@@ -23,7 +23,7 @@ def build_server(db_path: Path, host: str = "0.0.0.0", port: int = 18010) -> Fas
 
 
 def _register_health_route(server: FastMCP, db_path: Path) -> None:
-    @server.custom_route("/healthz", methods=["GET"])
+    @server.custom_route("/healthz", methods=["GET"])  # type: ignore[untyped-decorator]  # FastMCP.custom_route is untyped in mcp==1.29.0
     async def healthz(_request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "db": str(db_path)})
 
