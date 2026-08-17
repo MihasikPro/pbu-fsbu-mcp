@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import sqlite3
 import sys
 from datetime import date
@@ -17,21 +18,36 @@ SCHEMA_PATH = Path(__file__).resolve().parents[1] / "src" / "pbu_fsbu_mcp" / "sc
 
 
 def build(sources_dir: Path, output: Path, built_at: date) -> None:
-    """Rebuild `output` from every YAML file in `sources_dir`."""
+    """Rebuild `output` from every YAML file in `sources_dir`.
+
+    Builds into a temporary file next to `output` and only swaps it into
+    place with `os.replace()` (atomic on both Windows and POSIX) after every
+    row is committed. If anything fails - a bad source file, a constraint
+    violation - the temporary file is removed and `output` is left exactly
+    as it was, so a failed rebuild can never ship a half-written or empty
+    corpus in place of a good one.
+    """
     standards = load_all(sources_dir)
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.unlink(missing_ok=True)
+    tmp_output = output.with_name(f"{output.name}.tmp")
+    tmp_output.unlink(missing_ok=True)
 
-    connection = sqlite3.connect(output)
     try:
-        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        for standard in standards:
-            _insert_standard(connection, standard)
-        _insert_meta(connection, standards, built_at)
-        connection.commit()
-    finally:
-        connection.close()
+        connection = sqlite3.connect(tmp_output)
+        try:
+            connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+            for standard in standards:
+                _insert_standard(connection, standard)
+            _insert_meta(connection, standards, built_at)
+            connection.commit()
+        finally:
+            connection.close()
+    except BaseException:
+        tmp_output.unlink(missing_ok=True)
+        raise
+
+    os.replace(tmp_output, output)
 
 
 def _insert_standard(connection: sqlite3.Connection, standard: Standard) -> None:
