@@ -7,6 +7,27 @@ standard as server-rendered HTML: no JavaScript, no scan, no OCR. It also
 covers standards published before publication.pravo.gov.ru's ~November 2011
 archive start, which OCR (`etl/pravo.py` + `etl/ocr_text.py`) cannot reach at
 all.
+
+The page's `<p>` stream is not always *only* the standard's own clauses,
+though. Investigation against the real markup (see
+`data/drafts/*.yaml` duplicate-path audit) turned up three recurring, purely
+textual patterns - none of them marked off by a dedicated container, so none
+of them can be told apart by `BeautifulSoup` selectors alone:
+
+* Some pages (mostly recent ФСБУ) render the *approving order's own*
+  numbered clauses ("1. Утвердить ...", "2. Установить, что ...") before the
+  standard's own body, and the body restarts its own numbering at "1." right
+  after - `_leading_order_preamble_end` finds where the standard's own text
+  begins and drops everything before it.
+* At least one page (ПБУ 10/99) renders the entire body twice, back to back,
+  with no boundary between the two copies at all - the second copy's own
+  "annex begins here" marker is the only signal that a repeat has started;
+  `_leading_order_preamble_end` finds *that* occurrence too and the caller
+  truncates there instead of concatenating both copies.
+* Several pages carry a nested annex *of the standard itself* ("Приложение
+  к Положению по бухгалтерскому учету ...", worked examples) whose own
+  numbering restarts at "1." and collides with the standard's real clauses -
+  `_drop_nested_appendix` cuts it off.
 """
 
 from __future__ import annotations
@@ -26,8 +47,89 @@ from etl.clause_parser import parse_clauses
 # If a future redesign moves the text elsewhere, `looks_complete` below is
 # what catches it: this function then simply returns too little text and the
 # caller falls back to OCR instead of writing a near-empty draft.
+#
+# For a handful of standards (see module docstring) that single wrapper is
+# not the standard's text alone - `_one_copy_of_the_standard` below trims it
+# down to exactly the standard's own body before it is joined into text.
 _CONTENT_CLASS = "text_wrapper"
 _WHITESPACE_RE = re.compile(r"[ \t\xa0]+")
+
+# The paragraph where the standard's own text begins on the page: either an
+# explicit "this is the annex of order N" caption ("УТВЕРЖДЕН(О) приказом
+# ...", "Приложение [№ N] к приказу ...") or, for pre-2011 ПБУ pages that
+# carry no such caption at all, the parenthetical order-approval note glued
+# directly under the title ("(утверждено приказом Минфина России от ...)").
+# When this is not the very first paragraph, everything before it is the
+# approving order's own preamble (its "Утвердить .../Установить .../
+# Признать утратившими силу ..." clauses) - not part of the standard - and
+# is dropped. When the marker recurs *again* later in the same page, that
+# second occurrence opens a full second copy of the body (ПБУ 10/99) and
+# everything from there on is dropped instead.
+_ANNEX_START_RE = re.compile(
+    r"^\(?\s*(?:утвержд(?:ен|ено|ена)\s+приказом|приложени[ея]\s*(?:№\s*\d+)?\s*к\s+приказ)",
+    re.IGNORECASE,
+)
+
+# A nested annex *of the standard itself* (as opposed to `_ANNEX_START_RE`'s
+# "annex of the order") - e.g. "Приложение к Положению по бухгалтерскому
+# учету «Учет расчетов ...» ПБУ 18/02". It carries its own numbering (often
+# restarting at "1") that is illustrative, not part of the standard's own
+# clauses, and collides with real clause paths if left in. The caption is
+# matched either as one paragraph, or - when the page wraps it across two
+# `<p>` tags - as a bare "Приложение [№ N]" immediately followed by a
+# "к Положению/Стандарту ..." paragraph.
+_NESTED_APPENDIX_RE = re.compile(
+    r"^приложени[ея]\s*(?:№\s*\d+)?\s*к\s+(?:положени|стандарт)", re.IGNORECASE
+)
+_NESTED_APPENDIX_LABEL_RE = re.compile(r"^приложени[ея]\s*(?:№\s*\d+)?\s*$", re.IGNORECASE)
+_NESTED_APPENDIX_CONTINUATION_RE = re.compile(r"^к\s+(?:положени|стандарт)", re.IGNORECASE)
+
+# A clause or section number followed by a `<sup>` suffix ("17\N{SUPERSCRIPT
+# ONE}." for a clause inserted between 17 and 18 by a later amending order;
+# "II\N{SUPERSCRIPT ONE}." for a section inserted the same way) renders, once
+# `<p>.get_text(" ", ...)` joins the tag's text nodes with spaces, as
+# "17 1 ." / "II 1 .": the digit ends up detached from its base by whitespace
+# on both sides. Left alone this breaks both `_CLAUSE_RE`/`_DECIMAL_CLAUSE_RE`
+# (which require the digits glued together) and `_SECTION_RE` (whose marker
+# excludes whitespace), so the paragraph is silently swallowed as a
+# continuation of whatever clause happens to still be open - and every
+# lettered subclause that follows it gets misattributed to that clause too.
+# Re-gluing the suffix the way each base spells it out in the source fixes
+# both: a decimal clause number takes a dot ("17" + "1" -> "17.1", matching
+# `_DECIMAL_CLAUSE_RE`'s "N.M" shape); a Roman section numeral takes no
+# separator at all ("II" + "1" -> "II1", matching `_SECTION_RE`'s plain
+# marker shape - a Roman numeral is never itself followed by a dot before the
+# clause-final one).
+_SUPERSCRIPT_MARKER_RE = re.compile(r"^(?P<base>[IVXLCDM]+|\d+)\s+(?P<suffix>\d+)\s*\.")
+
+
+def _reglue_superscript_marker(text: str) -> str:
+    match = _SUPERSCRIPT_MARKER_RE.match(text)
+    if match is None:
+        return text
+    base, suffix = match["base"], match["suffix"]
+    separator = "." if base.isdigit() else ""
+    return f"{base}{separator}{suffix}." + text[match.end() :]
+
+
+def _one_copy_of_the_standard(paragraphs: list[str]) -> list[str]:
+    """Trim `paragraphs` down to exactly one copy of the standard's own body."""
+    annex_starts = [i for i, text in enumerate(paragraphs) if _ANNEX_START_RE.match(text)]
+    if annex_starts:
+        first_copy_start = annex_starts[0]
+        second_copy_start = annex_starts[1] if len(annex_starts) > 1 else None
+        paragraphs = paragraphs[first_copy_start:second_copy_start]
+
+    for i, text in enumerate(paragraphs):
+        if _NESTED_APPENDIX_RE.match(text):
+            return paragraphs[:i]
+        if (
+            _NESTED_APPENDIX_LABEL_RE.match(text)
+            and i + 1 < len(paragraphs)
+            and _NESTED_APPENDIX_CONTINUATION_RE.match(paragraphs[i + 1])
+        ):
+            return paragraphs[:i]
+    return paragraphs
 
 
 def extract_clauses_html(html: bytes) -> str:
@@ -37,7 +139,8 @@ def extract_clauses_html(html: bytes) -> str:
     paragraph - `parse_clauses` splits blocks on blank lines and treats each
     one as a candidate clause/subclause/heading opener, so collapsing
     paragraph breaks here would destroy that structure before parsing even
-    starts.
+    starts. See the module docstring for the page-furniture (order preamble,
+    duplicated body, nested appendix) trimmed out before that happens.
     """
     soup = BeautifulSoup(html, "lxml")
     for tag in soup(["script", "style"]):
@@ -56,10 +159,11 @@ def extract_clauses_html(html: bytes) -> str:
     paragraphs: list[str] = []
     for p in wrapper.find_all("p"):
         text = _WHITESPACE_RE.sub(" ", p.get_text(" ", strip=True)).strip()
+        text = _reglue_superscript_marker(text)
         if text:
             paragraphs.append(text)
 
-    return "\n\n".join(paragraphs)
+    return "\n\n".join(_one_copy_of_the_standard(paragraphs))
 
 
 def looks_complete(text: str, expected_min_clauses: int = 5) -> bool:

@@ -5,6 +5,7 @@ from etl.minfin_document import extract_clauses_html, looks_complete
 
 FIXTURE_FSBU_6_2020 = Path(__file__).parent / "fixtures" / "minfin_document_fsbu_6_2020.html"
 FIXTURE_PBU_1_2008 = Path(__file__).parent / "fixtures" / "minfin_document_pbu_1_2008.html"
+FIXTURE_PBU_10_99 = Path(__file__).parent / "fixtures" / "minfin_document_pbu_10_99.html"
 
 
 # --- extract_clauses_html: small, handcrafted markup -----------------------
@@ -118,5 +119,43 @@ def test_pbu_1_2008_yields_the_expected_primary_clause_count() -> None:
 
 def test_pbu_1_2008_has_no_duplicate_clause_paths() -> None:
     text = extract_clauses_html(FIXTURE_PBU_1_2008.read_bytes())
+    paths = [clause.path for clause in parse_clauses(text)]
+    assert len(paths) == len(set(paths))
+
+
+# `minfin_document_pbu_10_99.html` is a byte-for-byte copy of
+# https://minfin.gov.ru/ru/document?id_4=2269 - its `text_wrapper` renders the
+# entire standard twice, back to back, with no container marking the second
+# copy off from the first (see the `extract_clauses_html` module docstring).
+
+
+def test_pbu_10_99_renders_the_document_exactly_once() -> None:
+    # A sentence from clause 1, distinctive enough that it could only appear
+    # here (and not, say, as part of a cross-reference elsewhere on the
+    # page) - present twice in the raw page, must survive extraction once.
+    text = extract_clauses_html(FIXTURE_PBU_10_99.read_bytes())
+    sentence = (
+        "Настоящее Положение устанавливает правила формирования в "
+        "бухгалтерском учете информации о расходах коммерческих организаций"
+    )
+    assert text.count(sentence) == 1
+
+
+def test_pbu_10_99_yields_the_hand_verified_clause_count() -> None:
+    text = extract_clauses_html(FIXTURE_PBU_10_99.read_bytes())
+    clauses = parse_clauses(text)
+    top_level = {clause.path for clause in clauses if clause.parent_path is None}
+    lettered = {clause.path for clause in clauses if clause.parent_path is not None}
+    # Hand-verified against the standard's own numbering: clauses 1..23
+    # (clause 12 repealed, so 22 primary clauses) plus 12 decimal insertions
+    # ("6.1".."6.6", "14.1".."14.4", "21.1", "21.2") added by later amending
+    # orders - 34 numbered clauses total, no lettered (а/б/...) subclauses.
+    assert len(top_level) == 34
+    assert len(lettered) == 0
+    assert looks_complete(text)
+
+
+def test_pbu_10_99_has_no_duplicate_clause_paths() -> None:
+    text = extract_clauses_html(FIXTURE_PBU_10_99.read_bytes())
     paths = [clause.path for clause in parse_clauses(text)]
     assert len(paths) == len(set(paths))

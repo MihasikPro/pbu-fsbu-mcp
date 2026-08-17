@@ -153,6 +153,12 @@ def _normalise_appendix_number(number: str) -> str:
     return re.sub(r"\s+", "", number)
 
 
+def _clause_number_key(number: str) -> tuple[int, int]:
+    """Order `"17"` and `"17.3"` as `(17, 0)` and `(17, 3)` for a monotonicity check."""
+    major, _, minor = number.partition(".")
+    return int(major), int(minor) if minor else 0
+
+
 def parse_clauses(text: str) -> list[ParsedClause]:
     """Return clauses in document order, attaching the enclosing section heading.
 
@@ -161,11 +167,25 @@ def parse_clauses(text: str) -> list[ParsedClause]:
     mid-sentence. Any paragraph that does not open a new clause, subclause, or
     section heading is treated as a continuation of whichever clause is
     currently open and is appended to it, rather than being dropped.
+
+    A document's top-level clause numbers only ever increase (skipping a
+    repealed clause is fine; going back down is not). A block that opens a
+    lower-or-equal top-level number - a mis-rendered section heading using
+    plain Arabic digits instead of a Roman numeral ("2. Понятие событий ..."
+    misread as clause "2" when clause "2" already exists), or a nested,
+    independently-numbered appendix/worked example the page did not mark off
+    clearly enough to be caught before parsing even starts (see
+    `etl/minfin_document.py`) - is not a clause of this document and is
+    discarded, along with every subclause and continuation paragraph that
+    follows it, up to the next block that either resumes the real sequence or
+    opens a genuine section heading.
     """
     heading: str | None = None
     last_top_level: str | None = None
+    last_top_level_key: tuple[int, int] | None = None
     last_subclause_letter: str | None = None
     current: _OpenClause | None = None
+    discarding = False
     clauses: list[_OpenClause] = []
 
     for raw_block in _blocks(_PAGE_FURNITURE_RE.sub("", text)):
@@ -174,8 +194,10 @@ def parse_clauses(text: str) -> list[ParsedClause]:
             heading = section_heading
             # A heading never appears mid-clause in a well-formed document;
             # closing the open clause here stops unrelated stray text from
-            # ever being glued onto it across a section boundary.
+            # ever being glued onto it across a section boundary. It also
+            # unambiguously ends any run of discarded, out-of-sequence blocks.
             current = None
+            discarding = False
             continue
 
         block = normalise_hyphenation(raw_block)
@@ -183,6 +205,8 @@ def parse_clauses(text: str) -> list[ParsedClause]:
             continue
 
         subclause_letter, subclause_end = _match_subclause(block, last_subclause_letter)
+        if subclause_letter is not None and discarding:
+            continue
         if subclause_letter is not None and last_top_level is not None:
             current = _OpenClause(
                 path=f"{last_top_level}.{subclause_letter}",
@@ -196,11 +220,21 @@ def parse_clauses(text: str) -> list[ParsedClause]:
 
         clause_match = _DECIMAL_CLAUSE_RE.match(block) or _CLAUSE_RE.match(block)
         if clause_match:
+            key = _clause_number_key(clause_match["number"])
+            if last_top_level_key is not None and key <= last_top_level_key:
+                discarding = True
+                current = None
+                continue
             last_top_level = clause_match["number"]
+            last_top_level_key = key
             last_subclause_letter = None
+            discarding = False
             current = _OpenClause(path=last_top_level, parent_path=None, heading=heading)
             current.parts.append(block[clause_match.end() :].strip())
             clauses.append(current)
+            continue
+
+        if discarding:
             continue
 
         if current is not None:
