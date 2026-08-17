@@ -463,25 +463,27 @@ def test_slice_appendix_does_not_confuse_a_number_with_its_suffix() -> None:
 
 # --- Regression against the real OCR of order 204n -------------------------
 #
-# The fixture is a local `.superpowers` artifact (gitignored, produced ad hoc
-# while diagnosing the parser) and is not committed to the repo, so every
-# test below skips gracefully when it is absent - e.g. in a fresh checkout or
-# in CI. Lines 106-866 (1-indexed) of that dump hold FSBU 6/2020; the
-# hand-verified target is `data/sources/standards/fsbu-6-2020.yaml`, which
-# *is* committed. The YAML also contains manual OCR corrections (spelling,
-# hyphenation) no text-only parser can reproduce, so most tests below check
-# clause/subclause *coverage* against the YAML's paths rather than
-# byte-for-byte text equality. The two editorial ".заключение" splits
-# (13.заключение, 20.заключение) *are* structural, not OCR corrections, and
-# are checked explicitly further down.
+# The fixture is committed at `tests/fixtures/prikaz_204n_ocr.txt` (originally
+# produced ad hoc, as a gitignored `.superpowers` artifact, while diagnosing
+# the parser). `requires_real_ocr_fixture` is kept as a defensive skip rather
+# than a hard dependency, so these tests degrade gracefully instead of
+# erroring if the fixture is ever moved or deleted locally. Lines 106-866
+# (1-indexed) of that dump hold FSBU 6/2020; the hand-verified target is
+# `data/sources/standards/fsbu-6-2020.yaml`, which is also committed. The
+# YAML also contains manual OCR corrections (spelling, hyphenation) no
+# text-only parser can reproduce, so most tests below check clause/subclause
+# *coverage* against the YAML's paths rather than byte-for-byte text
+# equality. The two editorial ".заключение" splits (13.заключение,
+# 20.заключение) *are* structural, not OCR corrections, and are checked
+# explicitly further down.
 
 _REPO_ROOT = Path(__file__).parent.parent
-_OCR_FIXTURE = _REPO_ROOT / ".superpowers" / "sdd" / "source" / "prikaz_204n_ocr.txt"
+_OCR_FIXTURE = Path(__file__).parent / "fixtures" / "prikaz_204n_ocr.txt"
 _GOLD_FSBU_6_2020 = _REPO_ROOT / "data" / "sources" / "standards" / "fsbu-6-2020.yaml"
 
 requires_real_ocr_fixture = pytest.mark.skipif(
     not _OCR_FIXTURE.exists(),
-    reason="real OCR fixture (.superpowers/sdd/source/prikaz_204n_ocr.txt) is not committed to the repo",
+    reason="real OCR fixture (tests/fixtures/prikaz_204n_ocr.txt) is missing",
 )
 
 

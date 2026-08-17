@@ -274,17 +274,18 @@ def test_main_writes_a_draft_that_round_trips_through_render(
 
 
 # --- End-to-end: appendix slicing regenerates a clean fsbu-6-2020 draft ----
-# Real OCR fixture (gitignored .superpowers artifact, see test_clause_parser.py
-# for the full rationale); skips gracefully when absent. No network call and
-# no OCR call - the fixture is already-recognised text.
+# Committed OCR fixture (tests/fixtures/prikaz_204n_ocr.txt, see
+# test_clause_parser.py for the full rationale); `requires_real_ocr_fixture`
+# is a defensive skip, not a hard dependency - see its own comment there.
+# No network call and no OCR call - the fixture is already-recognised text.
 
 _REPO_ROOT = Path(__file__).parent.parent
-_OCR_FIXTURE = _REPO_ROOT / ".superpowers" / "sdd" / "source" / "prikaz_204n_ocr.txt"
+_OCR_FIXTURE = Path(__file__).parent / "fixtures" / "prikaz_204n_ocr.txt"
 _GOLD_FSBU_6_2020 = _REPO_ROOT / "data" / "sources" / "standards" / "fsbu-6-2020.yaml"
 
 requires_real_ocr_fixture = pytest.mark.skipif(
     not _OCR_FIXTURE.exists(),
-    reason="real OCR fixture (.superpowers/sdd/source/prikaz_204n_ocr.txt) is not committed to the repo",
+    reason="real OCR fixture (tests/fixtures/prikaz_204n_ocr.txt) is missing",
 )
 
 
