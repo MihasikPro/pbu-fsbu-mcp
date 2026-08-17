@@ -107,11 +107,23 @@ def test_corpus_meta_is_written(tmp_path: Path) -> None:
 
 
 def test_rebuild_replaces_previous_database(tmp_path: Path) -> None:
+    """A single corpus_meta row alone would also pass against a corpus with zero
+    clauses - the exact failure the atomic rebuild was written to prevent."""
     output = _build(tmp_path)
+    (clause_count_before,) = sqlite3.connect(output).execute(
+        "SELECT COUNT(*) FROM clause"
+    ).fetchone()
+
     build(SOURCES, output, built_at=date(2026, 8, 15))
+
     connection = sqlite3.connect(output)
-    rows = connection.execute("SELECT COUNT(*) FROM corpus_meta").fetchone()
-    assert rows == (1,)
+    meta_row_count = connection.execute("SELECT COUNT(*) FROM corpus_meta").fetchone()
+    assert meta_row_count == (1,)
+    (built_at,) = connection.execute("SELECT built_at FROM corpus_meta").fetchone()
+    assert built_at == "2026-08-15"
+    (clause_count_after,) = connection.execute("SELECT COUNT(*) FROM clause").fetchone()
+    assert clause_count_after == clause_count_before
+    assert clause_count_after > 0
 
 
 def test_failed_rebuild_leaves_existing_database_untouched(tmp_path: Path) -> None:

@@ -6,5 +6,3 @@ services:
     ports:
       - "18010:18010"
     read_only: true
-    environment:
-      PBU_MCP_TOKEN: ""
