@@ -88,11 +88,13 @@ _ANNEX_START_RE = re.compile(
 # clauses, and collides with real clause paths if left in. The caption is
 # matched either as one paragraph, or - when the page wraps it across two
 # `<p>` tags - as a bare "Приложение [№ N]" immediately followed by a
-# "к Положению/Стандарту ..." paragraph.
+# "к Положению/Стандарту ..." paragraph. The "№" itself is optional even
+# when a number is present - ПБУ 8/2010's own page spells it "Приложение 1
+# к Положению ..." with no "№" at all.
 _NESTED_APPENDIX_RE = re.compile(
-    r"^приложени[ея]\s*(?:№\s*\d+)?\s*к\s+(?:положени|стандарт)", re.IGNORECASE
+    r"^приложени[ея]\s*(?:№\s*)?\d*\s*к\s+(?:положени|стандарт)", re.IGNORECASE
 )
-_NESTED_APPENDIX_LABEL_RE = re.compile(r"^приложени[ея]\s*(?:№\s*\d+)?\s*$", re.IGNORECASE)
+_NESTED_APPENDIX_LABEL_RE = re.compile(r"^приложени[ея]\s*(?:№\s*)?\d*\s*$", re.IGNORECASE)
 _NESTED_APPENDIX_CONTINUATION_RE = re.compile(r"^к\s+(?:положени|стандарт)", re.IGNORECASE)
 
 # A clause or section number followed by a `<sup>` suffix ("17\N{SUPERSCRIPT

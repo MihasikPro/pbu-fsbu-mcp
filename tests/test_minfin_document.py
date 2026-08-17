@@ -7,6 +7,7 @@ FIXTURE_FSBU_6_2020 = Path(__file__).parent / "fixtures" / "minfin_document_fsbu
 FIXTURE_PBU_1_2008 = Path(__file__).parent / "fixtures" / "minfin_document_pbu_1_2008.html"
 FIXTURE_PBU_10_99 = Path(__file__).parent / "fixtures" / "minfin_document_pbu_10_99.html"
 FIXTURE_FSBU_27_2021 = Path(__file__).parent / "fixtures" / "pages" / "fsbu-27-2021.html"
+FIXTURE_PBU_8_2010 = Path(__file__).parent / "fixtures" / "pages" / "pbu-8-2010.html"
 
 
 # --- extract_clauses_html: small, handcrafted markup -----------------------
@@ -212,3 +213,35 @@ def test_fsbu_27_2021_page_has_no_usable_text() -> None:
 def test_fsbu_27_2021_page_links_its_own_pdf_attachment() -> None:
     url = find_standalone_pdf_url(FIXTURE_FSBU_27_2021.read_bytes())
     assert url == "https://minfin.gov.ru/common/upload/library/2021/06/main/fsbu_27-2021.pdf"
+
+
+# --- Nested appendix without a "№" (handcrafted markup) ---------------------
+
+
+def test_drops_a_nested_appendix_numbered_without_a_hash_sign() -> None:
+    # ПБУ 8/2010's own page spells its appendix caption "Приложение 1 к
+    # Положению ..." - no "№" before the number, unlike every other nested
+    # appendix caption seen so far.
+    html = (
+        "<div class='text_wrapper'>"
+        "<p>28. Текст последнего пункта Положения.</p>"
+        "<p>Приложение 1 к Положению по бухгалтерскому учету «Стандарт» "
+        "(ПБУ 8/2010) ПРИМЕРЫ.</p>"
+        "<p>Пример 1. Текст примера.</p>"
+        "</div>"
+    ).encode()
+    assert extract_clauses_html(html) == "28. Текст последнего пункта Положения."
+
+
+# --- Real ПБУ 8/2010 page (committed fixture) --------------------------------
+# `pages/pbu-8-2010.html` is a byte-for-byte copy of
+# https://minfin.gov.ru/ru/document?id_4=11979 - its п.28 is immediately
+# followed by "Приложение 1 к Положению ..." (12 074 of its 12 628 chars
+# were the appendix, glued in verbatim before this fix).
+
+
+def test_pbu_8_2010_clause_28_does_not_swallow_its_appendix() -> None:
+    text = extract_clauses_html(FIXTURE_PBU_8_2010.read_bytes())
+    clauses = {clause.path: clause for clause in parse_clauses(text)}
+    assert "Приложение" not in clauses["28"].text
+    assert len(clauses["28"].text) < 1000
