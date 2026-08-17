@@ -19,6 +19,12 @@ def build_server(db_path: Path, host: str = "0.0.0.0", port: int = 18010) -> Fas
     server = FastMCP("pbu-fsbu", host=host, port=port)
     server.settings.dependencies = []
     _register_health_route(server, db_path)
+    if db_path.stat().st_size > 0:
+        from pbu_fsbu_mcp.db import Corpus
+        from pbu_fsbu_mcp.tools import registry
+
+        corpus = Corpus(db_path)
+        registry.register(server, corpus)
     return server
 
 
