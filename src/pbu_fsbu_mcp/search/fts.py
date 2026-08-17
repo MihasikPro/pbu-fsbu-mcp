@@ -7,9 +7,9 @@ from datetime import date
 from pathlib import Path
 
 from pbu_fsbu_mcp.db import read_only_uri
-from pbu_fsbu_mcp.models import SearchHit
+from pbu_fsbu_mcp.models import SearchHit, StandardStatus
 from pbu_fsbu_mcp.search.morphology import lemmatize
-from pbu_fsbu_mcp.temporal import EditionRef, resolve_edition
+from pbu_fsbu_mcp.temporal import EditionRef, resolve_edition, status_on
 
 _SNIPPET_CHARS = 300
 
@@ -36,6 +36,7 @@ class FtsSearchBackend:
         active_editions = self._active_edition_ids(standard_ids, on_date)
         if not active_editions:
             return []
+        statuses = self._standard_statuses(standard_ids, on_date)
 
         placeholders = ",".join("?" for _ in active_editions)
         sql = (
@@ -73,6 +74,7 @@ class FtsSearchBackend:
                 heading=row["heading"],
                 snippet=row["text"][:_SNIPPET_CHARS],
                 score=-float(row["score"]),
+                status=statuses[row["standard_id"]],
             )
             for row in rows
         ]
@@ -110,3 +112,29 @@ class FtsSearchBackend:
             if edition is not None:
                 resolved.append(edition.edition_id)
         return resolved
+
+    def _standard_statuses(
+        self, standard_ids: list[str] | None, on_date: date
+    ) -> dict[str, StandardStatus]:
+        """Force status of every standard a hit can come from, keyed by standard id.
+
+        Resolving an edition (`_active_edition_ids`) only tells us a clause's
+        *text* is applicable on `on_date` - it does not check `standard.effective_to`,
+        so a repealed standard's still-resolvable edition would otherwise be
+        indistinguishable from an active one. This is what makes that check explicit.
+        """
+        sql = "SELECT id, effective_from, effective_to FROM standard"
+        params: list[str] = []
+        if standard_ids:
+            placeholders = ",".join("?" for _ in standard_ids)
+            sql += f" WHERE id IN ({placeholders})"
+            params = list(standard_ids)
+        rows = self._connection.execute(sql, params).fetchall()
+        return {
+            row["id"]: status_on(
+                date.fromisoformat(row["effective_from"]),
+                date.fromisoformat(row["effective_to"]) if row["effective_to"] else None,
+                on_date,
+            )
+            for row in rows
+        }

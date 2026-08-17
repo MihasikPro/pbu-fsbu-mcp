@@ -123,3 +123,4 @@ class SearchHit(BaseModel):
     heading: str | None
     snippet: str
     score: float
+    status: StandardStatus
