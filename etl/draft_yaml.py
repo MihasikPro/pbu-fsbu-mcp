@@ -16,13 +16,14 @@ import yaml
 
 from etl.clause_parser import ParsedClause, parse_clauses, slice_appendix
 from etl.http_client import fetch
-from etl.minfin_document import extract_clauses_html, looks_complete
-from etl.ocr_text import extract
+from etl.minfin_document import extract_clauses_html, find_standalone_pdf_url, looks_complete
+from etl.ocr_text import extract, extract_text_layer, has_text_layer
 from etl.pravo import parse_search, search_url
 from etl.registry import REGISTRY_URL, RegistryRow, parse
 
 SOURCE_HTML = "html"
 SOURCE_OCR = "ocr"
+SOURCE_MINFIN_PDF = "minfin_pdf"
 
 _SOURCE_LABELS = {
     SOURCE_HTML: (
@@ -32,6 +33,11 @@ _SOURCE_LABELS = {
     SOURCE_OCR: (
         "распознанный скан приказа с publication.pravo.gov.ru (OCR) - "
         "ожидайте больше OCR-артефактов, вычитывайте особенно внимательно"
+    ),
+    SOURCE_MINFIN_PDF: (
+        "распознанный скан собственного PDF-приложения страницы стандарта "
+        "(OCR, minfin.gov.ru) - страница не рендерит текст сама, вычитывайте "
+        "особенно внимательно"
     ),
 }
 
@@ -80,20 +86,51 @@ def render(row: RegistryRow, clauses: list[ParsedClause], *, source: str) -> str
     return _banner(source) + body
 
 
+def _parse_html_clauses(html: bytes) -> list[ParsedClause] | None:
+    """Extract clauses from an already-fetched Minfin document page.
+
+    `None` signals "this page rendered no usable text of its own" - either it
+    is too thin to trust (`looks_complete` guards against a redesigned page,
+    a wrong id, or an interstitial page silently producing an almost-empty
+    draft) or, as for ФСБУ 27/2021, its `text_wrapper` is present but simply
+    empty because the page embeds the standard only as a PDF viewer. Either
+    way the caller falls back to a standalone PDF attachment or OCR of the
+    published order - see `_fetch_clauses`.
+    """
+    text = extract_clauses_html(html)
+    if not looks_complete(text):
+        return None
+    return parse_clauses(text)
+
+
 def _fetch_clauses_html(row: RegistryRow, cache_dir: Path, *, live: bool) -> list[ParsedClause] | None:
-    """Try the standard's own Minfin document page; `None` signals "fall back to OCR".
+    """Try the standard's own Minfin document page; `None` signals "fall back".
 
     Minfin publishes the full text of every standard as server-rendered HTML
     on its own document page (`row.document_url`) - no OCR, and unlike
     publication.pravo.gov.ru it also covers standards published before that
-    portal's archive starts (~November 2011). `looks_complete` guards
-    against a redesigned page, a wrong id, or an interstitial page silently
-    producing an almost-empty draft instead of falling back to OCR.
+    portal's archive starts (~November 2011).
     """
     html = fetch(row.document_url, cache_dir, live=live)
-    text = extract_clauses_html(html)
-    if not looks_complete(text):
-        return None
+    return _parse_html_clauses(html)
+
+
+def _fetch_clauses_minfin_pdf(
+    row: RegistryRow, pdf_url: str, cache_dir: Path, *, live: bool
+) -> list[ParsedClause]:
+    """OCR the standard's own PDF attachment, linked from its Minfin page.
+
+    Used only when that page's `text_wrapper` rendered no usable text (see
+    `_parse_html_clauses`) but does link a standalone PDF of the standard
+    (`find_standalone_pdf_url`) - e.g. ФСБУ 27/2021, whose page embeds the
+    standard exclusively via a PDF viewer `<iframe>`. Unlike
+    `_fetch_clauses_ocr`, this PDF carries only the one standard, not a
+    multi-standard order, so `slice_appendix` is not needed. `has_text_layer`
+    takes the cheap, non-OCR path automatically should Minfin ever start
+    publishing these attachments with an actual text layer.
+    """
+    pdf_bytes = fetch(pdf_url, cache_dir, live=live)
+    text = extract_text_layer(pdf_bytes) if has_text_layer(pdf_bytes) else extract(pdf_bytes)
     return parse_clauses(text)
 
 
@@ -114,12 +151,23 @@ def _fetch_clauses_ocr(row: RegistryRow, cache_dir: Path, *, live: bool) -> list
 def _fetch_clauses(row: RegistryRow, cache_dir: Path, *, live: bool) -> tuple[list[ParsedClause], str]:
     """Return clauses for `row` and which source produced them.
 
-    Prefers Minfin's HTML document page; falls back to OCR of the published
-    order only when the HTML page did not yield enough clauses to be usable.
+    Prefers Minfin's HTML document page. When that page renders no usable
+    text, prefers a standalone PDF attachment of the standard linked from the
+    same page over OCR of the published order - the attachment carries only
+    the one standard, so there is no multi-standard preamble/appendix
+    boundary for OCR noise to obscure (see `_fetch_clauses_minfin_pdf`).
+    OCR of the published order is the last resort, used only when the page
+    links no such attachment either.
     """
-    html_clauses = _fetch_clauses_html(row, cache_dir, live=live)
+    html = fetch(row.document_url, cache_dir, live=live)
+    html_clauses = _parse_html_clauses(html)
     if html_clauses is not None:
         return html_clauses, SOURCE_HTML
+
+    pdf_url = find_standalone_pdf_url(html)
+    if pdf_url is not None:
+        return _fetch_clauses_minfin_pdf(row, pdf_url, cache_dir, live=live), SOURCE_MINFIN_PDF
+
     return _fetch_clauses_ocr(row, cache_dir, live=live), SOURCE_OCR
 
 

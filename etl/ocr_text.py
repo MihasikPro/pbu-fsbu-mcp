@@ -33,10 +33,29 @@ def has_text_layer(pdf_bytes: bytes) -> bool:
     return any((page.extract_text() or "").strip() for page in reader.pages)
 
 
+def extract_text_layer(pdf_bytes: bytes) -> str:
+    """Return the PDF's own embedded text, page by page. Cheap alternative to
+    `extract` for callers that already checked `has_text_layer` is true."""
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    return "\n\n".join((page.extract_text() or "") for page in reader.pages)
+
+
 def extract(
     pdf_bytes: bytes, dpi: int = DEFAULT_DPI, pages: Iterable[int] | None = None
 ) -> str:
-    """Return recognised text, page by page, separated by blank lines."""
+    """Return recognised text, page by page, separated by blank lines.
+
+    Each page's recognised text is prefixed with a `[[PAGE N]]` marker (`N`
+    the page's 0-based index) so that `clause_parser._PAGE_FURNITURE_RE` can
+    strip it - and an immediately following page-number footer line, when
+    Tesseract picks one up as part of the page's own text - before a page
+    break is ever allowed to fragment a clause or leak a stray digit into
+    one. Without the marker, a footer digit landing between two pages is
+    indistinguishable from real body text once blocks are split on blank
+    lines.
+    """
     import pymupdf
     import pytesseract
     from PIL import Image
@@ -54,6 +73,7 @@ def extract(
     for index in indexes:
         pixmap = document[index].get_pixmap(dpi=dpi)
         image = Image.open(io.BytesIO(pixmap.tobytes("png")))  # type: ignore[no-untyped-call]
-        recognised.append(pytesseract.image_to_string(image, lang="rus"))
+        page_text = pytesseract.image_to_string(image, lang="rus")
+        recognised.append(f"[[PAGE {index}]]\n{page_text}")
 
     return "\n\n".join(recognised)

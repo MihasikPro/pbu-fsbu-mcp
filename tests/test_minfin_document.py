@@ -1,11 +1,12 @@
 from pathlib import Path
 
 from etl.clause_parser import parse_clauses
-from etl.minfin_document import extract_clauses_html, looks_complete
+from etl.minfin_document import extract_clauses_html, find_standalone_pdf_url, looks_complete
 
 FIXTURE_FSBU_6_2020 = Path(__file__).parent / "fixtures" / "minfin_document_fsbu_6_2020.html"
 FIXTURE_PBU_1_2008 = Path(__file__).parent / "fixtures" / "minfin_document_pbu_1_2008.html"
 FIXTURE_PBU_10_99 = Path(__file__).parent / "fixtures" / "minfin_document_pbu_10_99.html"
+FIXTURE_FSBU_27_2021 = Path(__file__).parent / "fixtures" / "pages" / "fsbu-27-2021.html"
 
 
 # --- extract_clauses_html: small, handcrafted markup -----------------------
@@ -166,3 +167,48 @@ def test_pbu_10_99_has_no_duplicate_clause_paths() -> None:
     text = extract_clauses_html(FIXTURE_PBU_10_99.read_bytes())
     paths = [clause.path for clause in parse_clauses(text)]
     assert len(paths) == len(set(paths))
+
+
+# --- find_standalone_pdf_url: small, handcrafted markup ---------------------
+
+
+def test_find_standalone_pdf_url_resolves_a_relative_pdf_link() -> None:
+    html = (
+        "<div class='text_wrapper'></div>"
+        '<a href="/common/upload/library/2021/06/main/fsbu_27-2021.pdf">Скачать</a>'
+    ).encode()
+    assert (
+        find_standalone_pdf_url(html)
+        == "https://minfin.gov.ru/common/upload/library/2021/06/main/fsbu_27-2021.pdf"
+    )
+
+
+def test_find_standalone_pdf_url_returns_none_without_a_pdf_link() -> None:
+    html = "<div class='text_wrapper'><p>1. Текст.</p></div>".encode()
+    assert find_standalone_pdf_url(html) is None
+
+
+def test_find_standalone_pdf_url_matches_a_pdf_link_with_a_query_string() -> None:
+    html = '<a href="/common/upload/library/main/std.pdf?v=2">Скачать</a>'.encode()
+    assert (
+        find_standalone_pdf_url(html)
+        == "https://minfin.gov.ru/common/upload/library/main/std.pdf?v=2"
+    )
+
+
+# --- Real ФСБУ 27/2021 page (committed fixture) ------------------------------
+# `pages/fsbu-27-2021.html` is a byte-for-byte copy of
+# https://minfin.gov.ru/ru/document?id_4=133493 - its `text_wrapper` is
+# present but empty (see module docstring); the page embeds the standard
+# only via a PDF viewer `<iframe>`, alongside a plain download link to the
+# same PDF that `find_standalone_pdf_url` resolves.
+
+
+def test_fsbu_27_2021_page_has_no_usable_text() -> None:
+    text = extract_clauses_html(FIXTURE_FSBU_27_2021.read_bytes())
+    assert not looks_complete(text)
+
+
+def test_fsbu_27_2021_page_links_its_own_pdf_attachment() -> None:
+    url = find_standalone_pdf_url(FIXTURE_FSBU_27_2021.read_bytes())
+    assert url == "https://minfin.gov.ru/common/upload/library/2021/06/main/fsbu_27-2021.pdf"

@@ -58,6 +58,13 @@ def test_ocr_recognises_clause_numbering(first_pages_text: str) -> None:
     assert "1. Настоящий Стандарт устанавливает требования" in first_pages_text
 
 
+def test_ocr_prefixes_each_page_with_a_page_marker(first_pages_text: str) -> None:
+    # `pages=range(3, 5)` recognises pages 3 and 4 (0-based) - both markers
+    # must survive, in order, for `clause_parser._PAGE_FURNITURE_RE` to strip
+    # page breaks before they can fragment a clause.
+    assert first_pages_text.index("[[PAGE 3]]") < first_pages_text.index("[[PAGE 4]]")
+
+
 def test_hyphenation_across_lines_is_joined() -> None:
     assert normalise_hyphenation("амортиза-\nционных") == "амортизационных"
 

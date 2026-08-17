@@ -28,15 +28,26 @@ of them can be told apart by `BeautifulSoup` selectors alone:
   к Положению по бухгалтерскому учету ...", worked examples) whose own
   numbering restarts at "1." and collides with the standard's real clauses -
   `_drop_nested_appendix` cuts it off.
+* At least one page (ФСБУ 27/2021) renders no standard text at all: its
+  `text_wrapper` is present but empty, and the standard is embedded only as
+  a PDF viewer `<iframe>`. `find_standalone_pdf_url` locates that PDF's own
+  direct download link (present elsewhere on the same page) so the caller
+  can OCR *that* single-standard PDF instead of falling back to OCR of the
+  multi-standard published order, which has no comparable per-standard
+  anchor to slice on when the order enacts just one standard (see
+  `etl.draft_yaml._fetch_clauses`).
 """
 
 from __future__ import annotations
 
 import re
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
 from etl.clause_parser import parse_clauses
+
+_MINFIN_BASE_URL = "https://minfin.gov.ru"
 
 # The document's body - and nothing but the body - lives inside this single
 # wrapper on Minfin's document-detail template: one `<p>` per paragraph, no
@@ -175,3 +186,21 @@ def looks_complete(text: str, expected_min_clauses: int = 5) -> bool:
     """
     top_level = {clause.path for clause in parse_clauses(text) if clause.parent_path is None}
     return len(top_level) >= expected_min_clauses
+
+
+def find_standalone_pdf_url(html: bytes) -> str | None:
+    """Return the URL of the standard's own PDF attachment, or `None` if the page
+    carries no such link.
+
+    A page whose `text_wrapper` is empty (see module docstring) still links the same
+    PDF the `<iframe>` viewer embeds as a plain `<a href="...pdf">` elsewhere on the
+    page - a direct download link is far simpler to resolve reliably than parsing the
+    viewer's `file=` query parameter out of the `<iframe src=...>` attribute. Callers
+    are expected to check `looks_complete(extract_clauses_html(html))` first and use
+    this only once that has failed.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    link = soup.find("a", href=re.compile(r"\.pdf(?:[?#]|$)", re.IGNORECASE))
+    if link is None:
+        return None
+    return urljoin(_MINFIN_BASE_URL, str(link["href"]))
