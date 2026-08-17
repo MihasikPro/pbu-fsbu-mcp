@@ -9,6 +9,10 @@ FIXTURE_PBU_10_99 = Path(__file__).parent / "fixtures" / "minfin_document_pbu_10
 FIXTURE_FSBU_27_2021 = Path(__file__).parent / "fixtures" / "pages" / "fsbu-27-2021.html"
 FIXTURE_PBU_8_2010 = Path(__file__).parent / "fixtures" / "pages" / "pbu-8-2010.html"
 FIXTURE_FSBU_28_2023 = Path(__file__).parent / "fixtures" / "pages" / "fsbu-28-2023.html"
+FIXTURE_PBU_3_2006 = Path(__file__).parent / "fixtures" / "pages" / "pbu-3-2006.html"
+FIXTURE_PBU_20_03 = Path(__file__).parent / "fixtures" / "pages" / "pbu-20-03.html"
+FIXTURE_FSBU_4_2023 = Path(__file__).parent / "fixtures" / "pages" / "fsbu-4-2023.html"
+FIXTURE_FSBU_26_2020 = Path(__file__).parent / "fixtures" / "pages" / "fsbu-26-2020.html"
 
 
 # --- extract_clauses_html: small, handcrafted markup -----------------------
@@ -297,3 +301,138 @@ def test_fsbu_28_2023_no_longer_has_a_wholly_footnote_clause() -> None:
     text = extract_clauses_html(FIXTURE_FSBU_28_2023.read_bytes())
     paths = {clause.path for clause in parse_clauses(text)}
     assert "35.заключение" not in paths
+
+
+# --- Markup-driven heading detection (handcrafted markup) -------------------
+
+
+def test_bold_paragraph_becomes_a_heading_for_the_next_clause() -> None:
+    html = (
+        "<div class='text_wrapper'>"
+        "<p>1. Первый пункт.</p>"
+        "<p><strong>II. Оценка</strong></p>"
+        "<p>2. Второй пункт.</p>"
+        "</div>"
+    ).encode()
+    clause = next(c for c in parse_clauses(extract_clauses_html(html)) if c.path == "2")
+    assert clause.heading == "Оценка"
+
+
+def test_centred_unnumbered_paragraph_becomes_a_heading() -> None:
+    html = (
+        "<div class='text_wrapper'>"
+        "<p>1. Первый пункт.</p>"
+        '<p align="center"><strong>Бухгалтерский баланс</strong></p>'
+        "<p>2. Второй пункт.</p>"
+        "</div>"
+    ).encode()
+    clause = next(c for c in parse_clauses(extract_clauses_html(html)) if c.path == "2")
+    assert clause.heading == "Бухгалтерский баланс"
+
+
+def test_heading_split_across_two_strong_runs_is_still_recognised() -> None:
+    # Minfin sometimes renders a heading's numeral and its text as two
+    # adjacent <strong> tags ("<strong>V</strong><strong>. Раскрытие
+    # информации</strong>"); get_text(" ", ...) then inserts a space between
+    # them ("V . Раскрытие информации") that must not defeat recognition.
+    html = (
+        "<div class='text_wrapper'>"
+        "<p>1. Первый пункт.</p>"
+        "<p><strong>V</strong><strong>. Раскрытие информации</strong></p>"
+        "<p>2. Второй пункт.</p>"
+        "</div>"
+    ).encode()
+    clause = next(c for c in parse_clauses(extract_clauses_html(html)) if c.path == "2")
+    assert clause.heading == "Раскрытие информации"
+
+
+def test_partly_bold_paragraph_is_not_a_heading() -> None:
+    # Only a paragraph with *nothing* outside the bold tag counts - a
+    # single emphasised word inside an ordinary sentence must not.
+    html = (
+        "<div class='text_wrapper'>"
+        "<p>1. Текст с <strong>выделенным</strong> словом внутри предложения.</p>"
+        "<p>2. Второй пункт.</p>"
+        "</div>"
+    ).encode()
+    clauses = {c.path: c for c in parse_clauses(extract_clauses_html(html))}
+    assert "выделенным" in clauses["1"].text
+    assert clauses["2"].heading is None
+
+
+def test_title_page_paragraph_before_the_first_clause_is_not_a_heading() -> None:
+    html = (
+        "<div class='text_wrapper'>"
+        '<p align="center"><strong>ПОЛОЖЕНИЕ ПО БУХГАЛТЕРСКОМУ УЧЕТУ «СТАНДАРТ»</strong></p>'
+        "<p>1. Первый пункт.</p>"
+        "</div>"
+    ).encode()
+    clause = next(c for c in parse_clauses(extract_clauses_html(html)) if c.path == "1")
+    assert clause.heading is None
+
+
+def test_centred_amendment_note_is_not_a_heading_even_without_em_wrapping() -> None:
+    # ПБУ 20/03 п.16: Minfin does not consistently wrap these in <em> - some
+    # are plain, centre-aligned text, indistinguishable from a heading by
+    # markup alone; only the content check catches them.
+    html = (
+        "<div class='text_wrapper'>"
+        "<p>16. Текст пункта шестнадцать.</p>"
+        '<p align="center">(в ред. Приказа Минфина РФ от 18.09.2006 N 116н)</p>'
+        "<p>Продолжение пункта шестнадцать.</p>"
+        "<p>17. Второй пункт.</p>"
+        "</div>"
+    ).encode()
+    clauses = {c.path: c for c in parse_clauses(extract_clauses_html(html))}
+    assert "Продолжение пункта шестнадцать" in clauses["16"].text
+    assert clauses["17"].heading is None
+
+
+def test_em_wrapped_amendment_note_is_not_a_heading() -> None:
+    html = (
+        "<div class='text_wrapper'>"
+        "<p>1. Первый пункт.</p>"
+        '<p align="center"><em>(введено приказом Минфина России от 30.05.2022 № 87н)</em></p>'
+        "<p>2. Второй пункт.</p>"
+        "</div>"
+    ).encode()
+    clause = next(c for c in parse_clauses(extract_clauses_html(html)) if c.path == "2")
+    assert clause.heading is None
+
+
+# --- Real pages exercising the markup-driven heading fix (committed fixtures)
+
+
+def test_pbu_3_2006_heading_propagates_past_a_long_numbered_title() -> None:
+    # п.3's real 11-word section title used to be rejected by the word-count
+    # heuristic and glued onto п.3's own text instead.
+    text = extract_clauses_html(FIXTURE_PBU_3_2006.read_bytes())
+    clauses = {c.path: c for c in parse_clauses(text)}
+    assert clauses["3"].text.endswith("отчетного периода.")
+    assert clauses["4"].heading == (
+        "Пересчет выраженной в иностранной валюте стоимости активов и обязательств в рубли"
+    )
+
+
+def test_fsbu_4_2023_unnumbered_subsection_headings_do_not_become_clauses() -> None:
+    text = extract_clauses_html(FIXTURE_FSBU_4_2023.read_bytes())
+    clauses = {c.path: c for c in parse_clauses(text)}
+    assert "Бухгалтерский баланс" not in clauses
+    assert clauses["8"].heading == "Бухгалтерский баланс"
+
+
+def test_pbu_20_03_centred_amendment_note_does_not_overwrite_the_heading() -> None:
+    text = extract_clauses_html(FIXTURE_PBU_20_03.read_bytes())
+    clauses = {c.path: c for c in parse_clauses(text)}
+    assert clauses["17"].heading == "Совместная деятельность"
+
+
+def test_fsbu_26_2020_superscript_section_heading_applies_cleanly() -> None:
+    # "II<sup>1</sup>." (a section inserted between II and III) reglues to
+    # "II1." and must still be recognised as a numbered heading, with its
+    # own centred amendment note excluded from becoming one.
+    text = extract_clauses_html(FIXTURE_FSBU_26_2020.read_bytes())
+    clauses = {c.path: c for c in parse_clauses(text)}
+    assert clauses["17.3"].heading == (
+        "Научно-исследовательские, опытно-конструкторские и технологические работы"
+    )

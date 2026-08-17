@@ -36,6 +36,15 @@ of them can be told apart by `BeautifulSoup` selectors alone:
   multi-standard published order, which has no comparable per-standard
   anchor to slice on when the order enacts just one standard (see
   `etl.draft_yaml._fetch_clauses`).
+* Section headings, and unnumbered subsection titles inside them
+  ("Бухгалтерский баланс", "Постоянные разницы"), carry no text shape that
+  reliably tells them apart from real clause text once flattened to plain
+  text - but Minfin always typesets them as bold and/or centred, unlike any
+  body paragraph. `_looks_like_heading_markup` detects that structurally and
+  `extract_clauses_html` tags such a paragraph with `clause_parser.
+  HTML_HEADING_SENTINEL` before it is joined into the returned text, so
+  `parse_clauses` recognises it unconditionally instead of guessing from
+  word count or punctuation.
 """
 
 from __future__ import annotations
@@ -44,8 +53,9 @@ import re
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 
-from etl.clause_parser import parse_clauses
+from etl.clause_parser import HTML_HEADING_SENTINEL, parse_clauses
 
 _MINFIN_BASE_URL = "https://minfin.gov.ru"
 
@@ -125,6 +135,20 @@ _FOOTNOTE_DEFINITION_RE = re.compile(r"^\[\d+\]\s")
 # clause-final one).
 _SUPERSCRIPT_MARKER_RE = re.compile(r"^(?P<base>[IVXLCDM]+|\d+)\s+(?P<suffix>\d+)\s*\.")
 
+# An editorial/amendment-attribution note - "(в ред. приказа Минфина России
+# от ...)", "(введен приказом ...)", "(введено приказом ...)", "(пп. «X»
+# введен приказом ...)" - records *when* a clause or subclause was amended;
+# never the standard's own text. These are typeset inconsistently: some are
+# wrapped in `<em>` (excluded from heading detection on that basis alone),
+# but others are plain, centre-aligned text indistinguishable by markup from
+# a genuine heading (see ПБУ 20/03 п.16's own amendment note). Recognised by
+# content instead: every instance found in the corpus is a single
+# parenthesised clause containing "в ред. приказ..." or "введ<en|eno|ena>...
+# приказ...", case-insensitively.
+_EDITORIAL_NOTE_RE = re.compile(
+    r"^\([^()]*(?:в\s+ред\.\s+приказ|введен\w*\s+приказ)[^()]*\)$", re.IGNORECASE
+)
+
 
 def _reglue_superscript_marker(text: str) -> str:
     match = _SUPERSCRIPT_MARKER_RE.match(text)
@@ -135,34 +159,81 @@ def _reglue_superscript_marker(text: str) -> str:
     return f"{base}{separator}{suffix}." + text[match.end() :]
 
 
-def _drop_trailing_footnote_definitions(paragraphs: list[str]) -> list[str]:
+# Every trimming step below slices `paragraphs` down to a contiguous range of
+# itself and nothing else - never reorders, never drops an individual item
+# out of sequence - so pairing each paragraph's text with its
+# `_looks_like_heading_markup` flag and carrying the pair through unchanged
+# is enough to keep the two in sync all the way to the final join, with none
+# of these `re.match` calls ever needing to know about the pairing.
+_Paragraph = tuple[str, bool]
+
+
+def _drop_trailing_footnote_definitions(paragraphs: list[_Paragraph]) -> list[_Paragraph]:
     """Drop a trailing run of footnote-definition paragraphs, if any (see
     `_FOOTNOTE_DEFINITION_RE`)."""
     end = len(paragraphs)
-    while end > 0 and _FOOTNOTE_DEFINITION_RE.match(paragraphs[end - 1]):
+    while end > 0 and _FOOTNOTE_DEFINITION_RE.match(paragraphs[end - 1][0]):
         end -= 1
     return paragraphs[:end]
 
 
-def _one_copy_of_the_standard(paragraphs: list[str]) -> list[str]:
+def _one_copy_of_the_standard(paragraphs: list[_Paragraph]) -> list[_Paragraph]:
     """Trim `paragraphs` down to exactly one copy of the standard's own body."""
-    annex_starts = [i for i, text in enumerate(paragraphs) if _ANNEX_START_RE.match(text)]
+    annex_starts = [i for i, (text, _) in enumerate(paragraphs) if _ANNEX_START_RE.match(text)]
     if annex_starts:
         first_copy_start = annex_starts[0]
         second_copy_start = annex_starts[1] if len(annex_starts) > 1 else None
         paragraphs = paragraphs[first_copy_start:second_copy_start]
 
-    for i, text in enumerate(paragraphs):
+    for i, (text, _) in enumerate(paragraphs):
         if _NESTED_APPENDIX_RE.match(text):
             return paragraphs[:i]
         if (
             _NESTED_APPENDIX_LABEL_RE.match(text)
             and i + 1 < len(paragraphs)
-            and _NESTED_APPENDIX_CONTINUATION_RE.match(paragraphs[i + 1])
+            and _NESTED_APPENDIX_CONTINUATION_RE.match(paragraphs[i + 1][0])
         ):
             return paragraphs[:i]
 
     return _drop_trailing_footnote_definitions(paragraphs)
+
+
+def _is_fully_wrapped(p: Tag, tag_names: tuple[str, ...]) -> bool:
+    """True when every bit of `p`'s text sits inside a `tag_names` descendant.
+
+    A paragraph that is *partly* bold (a single emphasised word inside an
+    otherwise ordinary sentence) must not count - only a paragraph with
+    nothing outside the wrapping tag(s) does.
+    """
+    full_text = p.get_text(" ", strip=True)
+    wrapped = p.find_all(tag_names)
+    if not wrapped:
+        return False
+    wrapped_text = " ".join(tag.get_text(" ", strip=True) for tag in wrapped)
+    return bool(full_text) and full_text == wrapped_text
+
+
+def _looks_like_heading_markup(p: Tag, text: str) -> bool:
+    """True when `p`'s own markup marks it as a heading, not body text.
+
+    Minfin typesets every heading - numbered section titles and unnumbered
+    subsection titles alike - center-aligned, entirely bold, or both; body
+    paragraphs use neither. An editorial/amendment note ("(введено приказом
+    ...)") is routinely centred like the heading it is glued under, and
+    sometimes also wrapped in `<em>`/`<i>` - but never both consistently
+    (see ПБУ 20/03 п.16's own amendment note, plain centred text with no
+    `<em>` at all) - so `_EDITORIAL_NOTE_RE` excludes it by content instead
+    of relying on markup that is not applied consistently.
+    """
+    if _EDITORIAL_NOTE_RE.match(text):
+        return False
+    if _is_fully_wrapped(p, ("em", "i")):
+        return False
+    if _is_fully_wrapped(p, ("strong", "b")):
+        return True
+    align = str(p.get("align") or "").strip().lower()
+    style = str(p.get("style") or "").lower().replace(" ", "")
+    return align == "center" or "text-align:center" in style
 
 
 def extract_clauses_html(html: bytes) -> str:
@@ -189,14 +260,17 @@ def extract_clauses_html(html: bytes) -> str:
     for br in wrapper.find_all("br"):
         br.replace_with(" ")
 
-    paragraphs: list[str] = []
+    paragraphs: list[_Paragraph] = []
     for p in wrapper.find_all("p"):
         text = _WHITESPACE_RE.sub(" ", p.get_text(" ", strip=True)).strip()
         text = _reglue_superscript_marker(text)
         if text:
-            paragraphs.append(text)
+            paragraphs.append((text, _looks_like_heading_markup(p, text)))
 
-    return "\n\n".join(_one_copy_of_the_standard(paragraphs))
+    return "\n\n".join(
+        HTML_HEADING_SENTINEL + text if is_heading else text
+        for text, is_heading in _one_copy_of_the_standard(paragraphs)
+    )
 
 
 def looks_complete(text: str, expected_min_clauses: int = 5) -> bool:

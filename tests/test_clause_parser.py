@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from etl.clause_parser import parse_clauses, slice_appendix
+from etl.clause_parser import HTML_HEADING_SENTINEL, parse_clauses, slice_appendix
 
 SAMPLE = """
 I. Общие положения
@@ -69,6 +69,63 @@ def test_headings_are_not_emitted_as_clauses() -> None:
 
 def test_empty_input_yields_no_clauses() -> None:
     assert parse_clauses("") == []
+
+
+# --- HTML_HEADING_SENTINEL: markup-confirmed headings (minfin_document) ----
+# `minfin_document.extract_clauses_html` is the only real producer of this
+# sentinel; these tests exercise `parse_clauses`'s own handling of it
+# directly, independent of the HTML extraction step.
+
+
+def test_sentinel_numbered_heading_strips_its_own_marker() -> None:
+    text = (
+        f"1. Первый пункт.\n\n"
+        f"{HTML_HEADING_SENTINEL}III. Состав и содержание информации, раскрываемой в отчетности\n\n"
+        f"2. Второй пункт."
+    )
+    clause = next(item for item in parse_clauses(text) if item.path == "2")
+    assert clause.heading == "Состав и содержание информации, раскрываемой в отчетности"
+
+
+def test_sentinel_numbered_heading_ignores_the_word_limit() -> None:
+    # A real 11-word title `_match_section_heading`'s own word cap would
+    # reject - the sentinel path does not consult that limit at all.
+    long_heading = "Пересчет выраженной в иностранной валюте стоимости активов и обязательств в рубли"
+    text = f"1. Первый.\n\n{HTML_HEADING_SENTINEL}II. {long_heading}\n\n2. Второй."
+    clause = next(item for item in parse_clauses(text) if item.path == "2")
+    assert clause.heading == long_heading
+
+
+def test_sentinel_unnumbered_subsection_heading_applies_after_a_clause_is_open() -> None:
+    text = f"1. Первый пункт.\n\n{HTML_HEADING_SENTINEL}Бухгалтерский баланс\n\n2. Второй пункт."
+    clause = next(item for item in parse_clauses(text) if item.path == "2")
+    assert clause.heading == "Бухгалтерский баланс"
+
+
+def test_sentinel_unnumbered_heading_before_the_first_clause_is_title_page_furniture() -> None:
+    # No real clause has opened yet - an unnumbered sentinel-tagged paragraph
+    # here is the document's own title block, not a heading, and is dropped
+    # exactly as it already was before it started carrying the sentinel.
+    text = f"{HTML_HEADING_SENTINEL}ПОЛОЖЕНИЕ ПО БУХГАЛТЕРСКОМУ УЧЕТУ\n\n1. Первый пункт."
+    clause = next(item for item in parse_clauses(text) if item.path == "1")
+    assert clause.heading is None
+
+
+def test_sentinel_unnumbered_heading_does_not_become_a_clause() -> None:
+    text = f"1. Первый пункт.\n\n{HTML_HEADING_SENTINEL}Бухгалтерский баланс\n\n2. Второй пункт."
+    paths = [clause.path for clause in parse_clauses(text)]
+    assert "Бухгалтерский баланс" not in paths
+    assert paths == ["1", "2"]
+
+
+def test_sentinel_numbered_heading_before_the_first_clause_still_applies() -> None:
+    # Unlike the unnumbered case, a numbered heading ("I. Общие положения")
+    # legitimately precedes the document's first clause and must still set
+    # it, exactly like the plain-text `_match_section_heading` path already
+    # does for `SAMPLE` above.
+    text = f"{HTML_HEADING_SENTINEL}I. Общие положения\n\n1. Первый пункт."
+    clause = next(item for item in parse_clauses(text) if item.path == "1")
+    assert clause.heading == "Общие положения"
 
 
 # --- Decimal-numbered clauses inserted by a later amending order -----------

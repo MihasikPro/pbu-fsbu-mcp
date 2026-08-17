@@ -52,10 +52,38 @@ _LETTER_SEQUENCE = "абвгдежзиклмнопрстуфхцчшщэюя"
 # single physical OCR line with no sentence-ending punctuation. Real clause
 # text - even a one-line clause - is always a full sentence and ends with
 # one, which is what tells the two apart without hardcoding every corrupted
-# spelling of each Roman numeral.
-_SECTION_RE = re.compile(r"^(?P<marker>[^\s.]{1,6})\.\s+(?P<heading>.+)$")
+# spelling of each Roman numeral. The marker's dot tolerates a preceding
+# space (`\s*\.`, not `\.`): Minfin's HTML sometimes splits a heading's
+# numeral and its dot into two adjacent `<strong>` runs ("<strong>V</strong>
+# <strong>. Раскрытие...</strong>"), and `get_text(" ", ...)` then inserts a
+# space between them ("V . Раскрытие...") that a literal `\.` would reject.
+_SECTION_RE = re.compile(r"^(?P<marker>[^\s.]{1,6})\s*\.\s+(?P<heading>.+)$")
+# Deliberately still 6, not raised: real section titles run up to 11 words
+# ("Пересчет выраженной в иностранной валюте стоимости активов и
+# обязательств в рубли"), well past any word limit that would still reject
+# every false positive below - but those titles are now recognised through
+# `HTML_HEADING_SENTINEL` instead (see the sentinel handling in
+# `parse_clauses`), which does not consult this limit at all. Raising it
+# here would only widen this heuristic's own blast radius: Russian legal
+# abbreviations that end a word in a bare dot ("п." "пп.") make an
+# amendment-attribution parenthetical - "(п. 3 в ред. приказа Минфина России
+# от 30.05.2022 № 87н)" - structurally indistinguishable from a numbered
+# heading once its word count is allowed through, and it is exactly the
+# shape `test_no_amendment_attribution_as_entire_body` guards against
+# (confirmed: raising this past ~9 words reintroduces that regression on
+# fsbu-26-2020's "ж¹)" subclause, verified via `git stash` bisection).
 _HEADING_MAX_WORDS = 6
 _SENTENCE_END = (".", ",", ";", ":")
+
+# Minfin marks every heading in its HTML - numbered section titles and
+# unnumbered subsection titles alike ("Бухгалтерский баланс", "Постоянные
+# разницы") - as bold and/or centred; body paragraphs use neither. That
+# markup is a much more reliable heading signal than any text shape a
+# marker-less title could be guessed from, so `minfin_document.
+# extract_clauses_html` detects it structurally and prefixes such a
+# paragraph with this sentinel before it ever reaches here - never occurs in
+# real clause text or in OCR output, so it cannot collide with anything.
+HTML_HEADING_SENTINEL = ""
 
 # An appendix opens with a standalone line naming the standard it carries -
 # e.g. "ФСБУ 6/2020 «Основные средства»", usually directly under its own
@@ -235,17 +263,44 @@ def parse_clauses(text: str) -> list[ParsedClause]:
             clauses.append(conclusion)
         trailer = []
 
+    def open_heading(new_heading: str) -> None:
+        """Start a new section, closing whatever clause is currently open.
+
+        A heading never appears mid-clause in a well-formed document; closing
+        the open clause here stops unrelated stray text from ever being glued
+        onto it across a section boundary. It also unambiguously ends any run
+        of discarded, out-of-sequence blocks.
+        """
+        nonlocal heading, current, discarding
+        flush_trailer()
+        heading = new_heading
+        current = None
+        discarding = False
+
     for raw_block in _blocks(_PAGE_FURNITURE_RE.sub("", text)):
+        if raw_block.startswith(HTML_HEADING_SENTINEL):
+            heading_candidate = raw_block[len(HTML_HEADING_SENTINEL) :].strip()
+            marker_match = _SECTION_RE.match(heading_candidate)
+            if marker_match is not None:
+                # A numbered heading - always applies, exactly like the
+                # plain-text path below.
+                open_heading(marker_match["heading"].strip())
+            elif last_top_level is not None:
+                # An unnumbered subsection title - only meaningful once the
+                # document's own front matter (title page, order references)
+                # is behind us. Before the first real clause, a bold/centred
+                # paragraph with no numeral marker is title-page furniture,
+                # not a heading - e.g. "ПОЛОЖЕНИЕ ПО БУХГАЛТЕРСКОМУ УЧЕТУ
+                # «...»" is typeset exactly like "Бухгалтерский баланс" is,
+                # and only the document position tells them apart. Dropped
+                # silently here, exactly as it already was before this
+                # paragraph started carrying the sentinel.
+                open_heading(heading_candidate)
+            continue
+
         section_heading = _match_section_heading(raw_block)
         if section_heading is not None:
-            flush_trailer()
-            heading = section_heading
-            # A heading never appears mid-clause in a well-formed document;
-            # closing the open clause here stops unrelated stray text from
-            # ever being glued onto it across a section boundary. It also
-            # unambiguously ends any run of discarded, out-of-sequence blocks.
-            current = None
-            discarding = False
+            open_heading(section_heading)
             continue
 
         block = normalise_hyphenation(raw_block)
