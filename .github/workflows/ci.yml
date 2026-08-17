@@ -27,4 +27,4 @@ jobs:
       - name: Validate corpus integrity
         run: uv run python -m etl.validate
       - name: Tests
-        run: uv run pytest -q
+        run: uv run --group etl pytest -q
