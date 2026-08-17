@@ -29,6 +29,11 @@ def build_server(db_path: Path, host: str = "0.0.0.0", port: int = 18010) -> Fas
         from pbu_fsbu_mcp.tools import clauses
 
         clauses.register(server, corpus)
+
+        from pbu_fsbu_mcp.search.fts import FtsSearchBackend
+        from pbu_fsbu_mcp.tools import search as search_tool
+
+        search_tool.register(server, corpus, FtsSearchBackend(db_path))
     return server
 
 

@@ -22,6 +22,13 @@ PROTECTED_TERMS = frozenset(
     {"фсбу", "пбу", "мсфо", "нма", "мпз", "ппа", "спи", "ос", "нку"}
 )
 
+# Interrogative/modal particles common in natural-language queries ("что
+# считается...", "применяется ли...") that carry no discriminative meaning
+# for FTS matching but, left in, out-compete the actual content lemmas for
+# an AND match and dilute an OR match. Dropped on both the index and the
+# query side, since lemmatize() feeds both.
+_STOPWORDS = frozenset({"что", "ли"})
+
 
 @lru_cache(maxsize=100_000)
 def _lemma(token: str) -> str:
@@ -33,4 +40,5 @@ def _lemma(token: str) -> str:
 def lemmatize(text: str) -> str:
     """Return space-separated lemmas of `text`, lowercased, punctuation dropped."""
     tokens = _TOKEN_RE.findall(text.lower())
-    return " ".join(_lemma(token) for token in tokens)
+    lemmas = (_lemma(token) for token in tokens)
+    return " ".join(lemma for lemma in lemmas if lemma not in _STOPWORDS)

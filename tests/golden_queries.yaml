@@ -1,0 +1,30 @@
+- query: требования к формированию информации об основных средствах
+  expect_standard: fsbu-6-2020
+  expect_path: "1"
+- query: применяется ли стандарт бюджетными организациями
+  expect_standard: fsbu-6-2020
+  expect_path: "2"
+- query: признаки объекта основных средств
+  expect_standard: fsbu-6-2020
+  expect_path: "4"
+- query: материально-вещественная форма актива
+  expect_standard: fsbu-6-2020
+  expect_path: "4.а"
+- query: организации бюджетной сферы
+  expect_standard: fsbu-6-2020
+  expect_path: "2"
+- query: что считается объектом основных средств
+  expect_standard: fsbu-6-2020
+  expect_path: "4"
+# Correct answer by meaning, unreachable by wording: clause 1 defines what the
+# standard regulates but contains no cognate of «сфера»/«действие», while clause 2
+# literally contains «сферы». A lexical BM25 backend cannot rank clause 1 first here.
+# Kept as a documented limitation of the chosen approach; a semantic backend should
+# make it pass, at which point the marker must be removed.
+- query: сфера действия стандарта
+  expect_standard: fsbu-6-2020
+  expect_path: "1"
+  lexical_limitation: true
+- query: бухгалтерский учет основных средств организаций
+  expect_standard: fsbu-6-2020
+  expect_path: "1"

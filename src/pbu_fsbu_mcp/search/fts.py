@@ -52,9 +52,19 @@ class FtsSearchBackend:
             " ORDER BY score"
             " LIMIT ?"
         )
-        match_expression = self._to_match_expression(lemmas)
-        params = [match_expression, *active_editions, limit]
+
+        # Conjunctive match first: a clause matching every query lemma is a
+        # far stronger signal than one matching just any single lemma, and
+        # keeps common domain terms (present in nearly every clause) from
+        # drowning out the actually relevant one. Only widen to disjunctive
+        # matching when the strict match finds nothing, so multi-word
+        # queries still degrade gracefully instead of returning zero hits.
+        params = [self._to_match_expression(lemmas, operator="AND"), *active_editions, limit]
         rows = self._connection.execute(sql, params).fetchall()
+        if not rows:
+            params = [self._to_match_expression(lemmas, operator="OR"), *active_editions, limit]
+            rows = self._connection.execute(sql, params).fetchall()
+
         return [
             SearchHit(
                 standard_id=row["standard_id"],
@@ -68,9 +78,10 @@ class FtsSearchBackend:
         ]
 
     @staticmethod
-    def _to_match_expression(lemmas: str) -> str:
+    def _to_match_expression(lemmas: str, *, operator: str) -> str:
         """Quote every lemma so FTS5 operators in user input are treated literally."""
-        return " OR ".join(f'"{lemma}"' for lemma in lemmas.split())
+        separator = f" {operator} "
+        return separator.join(f'"{lemma}"' for lemma in lemmas.split())
 
     def _active_edition_ids(
         self, standard_ids: list[str] | None, on_date: date
