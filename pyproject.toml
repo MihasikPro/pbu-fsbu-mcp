@@ -1,0 +1,65 @@
+[project]
+name = "pbu-fsbu-mcp"
+version = "0.1.0"
+description = "MCP server for Russian accounting standards (PBU/FSBU)"
+requires-python = ">=3.12"
+dependencies = [
+    # Pinned to the 1.x line deliberately. mcp 2.0.0 (released 2026-07-28) is a
+    # major SDK rework that removes `mcp.server.fastmcp.FastMCP`, which this
+    # server is built on. 1.x still receives critical fixes on its own branch.
+    # Revisit only as a planned migration, never by relaxing this bound.
+    "mcp>=1.2.0,<2.0.0",
+    "pydantic>=2.7",
+    "pymorphy3>=2.0",
+    "pyyaml>=6.0",
+    "starlette>=0.40",
+]
+
+[project.scripts]
+pbu-fsbu-mcp = "pbu_fsbu_mcp.server:cli"
+
+[dependency-groups]
+# ruff is pinned to a minor range on purpose: its default rule set changes between
+# minor versions, so an unbounded range silently changes what CI enforces.
+dev = ["pytest>=8.0", "ruff>=0.16,<0.17", "mypy>=1.11", "types-PyYAML"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pbu_fsbu_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# DTZ011 pushes `date.today()` towards a timezone-aware call. This server answers
+# "what did the standard say on date X" against a local calendar date, and every
+# tool takes an explicit `on_date` when determinism matters - `date.today()` is
+# only the default. Accepting it once here beats scattering noqa across every
+# tool module.
+ignore = ["DTZ011"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "etl"]
+
+[[tool.mypy.overrides]]
+# pymorphy3 ships no py.typed marker and no stub package.
+module = "pymorphy3"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["anyio: async tests running on the anyio backend"]
+# The default temp root (%LOCALAPPDATA%\Temp\pytest-of-<user>) is ACL-locked on
+# the current development machine, which breaks every tmp_path fixture. A
+# repo-local basetemp keeps test runs reproducible regardless of machine state.
+addopts = "--basetemp=.pytest-tmp"
+filterwarnings = [
+    "error",  # Treat all warnings as errors to catch problems early
+    "ignore:Field 'lifespan' has an incomplete definition.*",  # mcp==1.29.0 via pydantic_settings; remove when fixed upstream
+]

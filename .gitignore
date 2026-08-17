@@ -8,3 +8,4 @@ data/drafts/
 .mypy_cache/
 .ruff_cache/
 .superpowers/
+.pytest-tmp/

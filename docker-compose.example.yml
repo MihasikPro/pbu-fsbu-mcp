@@ -1,0 +1,8 @@
+services:
+  pbu-fsbu-mcp:
+    image: ghcr.io/prokopchuk/pbu-fsbu-mcp:latest
+    container_name: pbu-fsbu-mcp
+    restart: unless-stopped
+    ports:
+      - "18010:18010"
+    read_only: true
