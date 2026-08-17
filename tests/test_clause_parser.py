@@ -267,6 +267,76 @@ def test_trailing_paragraph_at_the_end_of_the_document_still_becomes_a_conclusio
     assert clauses["20.заключение"].text == "Итоговое положение о применении способа."
 
 
+# --- EDITORIAL_NOTE_RE: amendment-attribution notes in a trailer ------------
+
+_EDITORIAL_NOTE_ONLY_TRAILER_SAMPLE = """
+3. Список способов:
+
+а) первый способ;
+
+б) второй способ.
+
+(п. 3 в ред. приказа Минфина России от 30.05.2022 № 87н)
+
+4. Следующий пункт.
+"""
+
+
+def test_editorial_note_alone_in_a_trailer_produces_no_conclusion() -> None:
+    paths = [clause.path for clause in parse_clauses(_EDITORIAL_NOTE_ONLY_TRAILER_SAMPLE)]
+    assert "3.заключение" not in paths
+
+
+_EDITORIAL_NOTE_AND_REAL_TEXT_TRAILER_SAMPLE = """
+16. Список способов:
+
+н) первый способ;
+
+(пп. «н» в ред. приказа Минфина России от 30.05.2022 № 87н)
+
+о) второй способ.
+
+(пп. «о» введен приказом Минфина России от 30.05.2022 № 87н)
+
+Указанные в настоящем пункте затраты признаются расходами периода.
+
+17. Следующий пункт.
+"""
+
+
+def test_editorial_note_mixed_with_real_trailing_text_keeps_only_the_real_text() -> None:
+    clause = next(
+        item
+        for item in parse_clauses(_EDITORIAL_NOTE_AND_REAL_TEXT_TRAILER_SAMPLE)
+        if item.path == "16.заключение"
+    )
+    assert clause.text == "Указанные в настоящем пункте затраты признаются расходами периода."
+
+
+_EDITORIAL_NOTE_INLINE_IN_AN_ORDINARY_CLAUSE_SAMPLE = """
+14. Первый абзац пункта.
+
+(в ред. приказа Минфина России от 20.11.2018 № 236н)
+
+Второй абзац пункта, идущий за примечанием.
+"""
+
+
+def test_editorial_note_inline_in_an_ordinary_clause_is_preserved() -> None:
+    # No lettered list at all here - the note is simply the clause's own
+    # continuation text, never routed through the trailer/conclusion
+    # mechanism, so EDITORIAL_NOTE_RE is never consulted for it (see
+    # pbu-18-02 п.14, the real-corpus original of this shape).
+    clause = next(
+        item for item in parse_clauses(_EDITORIAL_NOTE_INLINE_IN_AN_ORDINARY_CLAUSE_SAMPLE)
+        if item.path == "14"
+    )
+    assert clause.text == (
+        "Первый абзац пункта. (в ред. приказа Минфина России от 20.11.2018 № 236н) "
+        "Второй абзац пункта, идущий за примечанием."
+    )
+
+
 # A subclause's own text is sometimes wrapped across a spurious blank line by
 # a mid-sentence page break (see ФСБУ 6/2020's clause 45, options "ж"/"з" in
 # the real OCR fixture below) rather than by an actual paragraph break in the

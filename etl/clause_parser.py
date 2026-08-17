@@ -85,6 +85,26 @@ _SENTENCE_END = (".", ",", ";", ":")
 # real clause text or in OCR output, so it cannot collide with anything.
 HTML_HEADING_SENTINEL = ""
 
+# An editorial/amendment-attribution note - "(в ред. приказа Минфина России
+# от ...)", "(введен приказом ...)", "(введено приказом ...)", "(пп. «X»
+# введен приказом ...)" - records *when* a clause or subclause was amended;
+# never the standard's own text. Legitimate when it sits inline as part of
+# an ordinary clause's own continuation (see pbu-18-02 п.14, several such
+# notes woven through one multi-paragraph clause with no lettered list at
+# all) - `parse_clauses` never even consults this regex in that case, since
+# the paragraph is simply appended to the open clause's own text like any
+# other continuation. The defect this guards against is narrower: such a
+# note landing in the *trailer* buffer used to close a lettered subclause
+# list (see `flush_trailer`) and becoming - alone, or joined with unrelated
+# real trailing text - a `.заключение` pseudo-clause whose defining content
+# is an editorial note rather than any text of the standard. Recognised by
+# content: every instance found in the corpus is a single parenthesised
+# clause containing "в ред. приказ..." or "введ<en|eno|ena>... приказ...",
+# case-insensitively.
+EDITORIAL_NOTE_RE = re.compile(
+    r"^\([^()]*(?:в\s+ред\.\s+приказ|введен\w*\s+приказ)[^()]*\)$", re.IGNORECASE
+)
+
 # An appendix opens with a standalone line naming the standard it carries -
 # e.g. "ФСБУ 6/2020 «Основные средства»", usually directly under its own
 # "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА" caption - and nothing else
@@ -252,15 +272,24 @@ def parse_clauses(text: str) -> list[ParsedClause]:
         definitely ended (a new clause, heading, or end of document), so
         whatever is still open in `current` (if it is a subclause) is exactly
         the last subclause the trailer was tentatively attached to.
+
+        An editorial/amendment-attribution note (`EDITORIAL_NOTE_RE`) buffered
+        here is not part of the conclusion's own text - see the regex's own
+        docstring for why this is the one place it is stripped rather than
+        left alone. Dropped from the buffer before anything else: on its own
+        it must not produce a `.заключение` pseudo-clause at all; alongside
+        real trailing text (fsbu-26-2020 п.16) only the real text survives.
         """
         nonlocal trailer
-        if trailer and current is not None and current.parent_path is not None:
-            parent_path = current.parent_path
-            conclusion = _OpenClause(
-                path=f"{parent_path}.заключение", parent_path=parent_path, heading=None
-            )
-            conclusion.parts.extend(trailer)
-            clauses.append(conclusion)
+        if current is not None and current.parent_path is not None:
+            content = [part for part in trailer if not EDITORIAL_NOTE_RE.match(part)]
+            if content:
+                parent_path = current.parent_path
+                conclusion = _OpenClause(
+                    path=f"{parent_path}.заключение", parent_path=parent_path, heading=None
+                )
+                conclusion.parts.extend(content)
+                clauses.append(conclusion)
         trailer = []
 
     def open_heading(new_heading: str) -> None:

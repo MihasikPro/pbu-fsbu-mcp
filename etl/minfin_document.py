@@ -55,7 +55,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
-from etl.clause_parser import HTML_HEADING_SENTINEL, parse_clauses
+from etl.clause_parser import EDITORIAL_NOTE_RE, HTML_HEADING_SENTINEL, parse_clauses
 
 _MINFIN_BASE_URL = "https://minfin.gov.ru"
 
@@ -135,20 +135,6 @@ _FOOTNOTE_DEFINITION_RE = re.compile(r"^\[\d+\]\s")
 # clause-final one).
 _SUPERSCRIPT_MARKER_RE = re.compile(r"^(?P<base>[IVXLCDM]+|\d+)\s+(?P<suffix>\d+)\s*\.")
 
-# An editorial/amendment-attribution note - "(в ред. приказа Минфина России
-# от ...)", "(введен приказом ...)", "(введено приказом ...)", "(пп. «X»
-# введен приказом ...)" - records *when* a clause or subclause was amended;
-# never the standard's own text. These are typeset inconsistently: some are
-# wrapped in `<em>` (excluded from heading detection on that basis alone),
-# but others are plain, centre-aligned text indistinguishable by markup from
-# a genuine heading (see ПБУ 20/03 п.16's own amendment note). Recognised by
-# content instead: every instance found in the corpus is a single
-# parenthesised clause containing "в ред. приказ..." or "введ<en|eno|ena>...
-# приказ...", case-insensitively.
-_EDITORIAL_NOTE_RE = re.compile(
-    r"^\([^()]*(?:в\s+ред\.\s+приказ|введен\w*\s+приказ)[^()]*\)$", re.IGNORECASE
-)
-
 
 def _reglue_superscript_marker(text: str) -> str:
     match = _SUPERSCRIPT_MARKER_RE.match(text)
@@ -219,13 +205,18 @@ def _looks_like_heading_markup(p: Tag, text: str) -> bool:
     Minfin typesets every heading - numbered section titles and unnumbered
     subsection titles alike - center-aligned, entirely bold, or both; body
     paragraphs use neither. An editorial/amendment note ("(введено приказом
-    ...)") is routinely centred like the heading it is glued under, and
-    sometimes also wrapped in `<em>`/`<i>` - but never both consistently
-    (see ПБУ 20/03 п.16's own amendment note, plain centred text with no
-    `<em>` at all) - so `_EDITORIAL_NOTE_RE` excludes it by content instead
-    of relying on markup that is not applied consistently.
+    ...)", "(в ред. приказа ...)") is routinely centred like the heading it
+    is glued under, and sometimes also wrapped in `<em>`/`<i>` - but never
+    both consistently (see ПБУ 20/03 п.16's own amendment note, plain
+    centred text with no `<em>` at all) - so `EDITORIAL_NOTE_RE` excludes it
+    by content instead of relying on markup that is not applied
+    consistently. It stays a normal (non-heading) paragraph rather than
+    being dropped here: whether it is legitimate inline clause content or
+    an orphaned trailer that must not become its own pseudo-clause is a
+    parsing-level question `clause_parser.parse_clauses` is positioned to
+    answer, not an extraction-level one.
     """
-    if _EDITORIAL_NOTE_RE.match(text):
+    if EDITORIAL_NOTE_RE.match(text):
         return False
     if _is_fully_wrapped(p, ("em", "i")):
         return False
