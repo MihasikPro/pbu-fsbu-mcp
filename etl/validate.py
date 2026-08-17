@@ -75,6 +75,15 @@ _CHECKS: tuple[tuple[str, str], ...] = (
             " WHERE s.superseded_by IS NOT NULL AND target.id IS NULL"
         ),
     ),
+    (
+        "clause: parent_path ссылается на несуществующий пункт в той же редакции",
+        (
+            "SELECT child.id FROM clause AS child"
+            " LEFT JOIN clause AS parent"
+            "   ON parent.edition_id = child.edition_id AND parent.path = child.parent_path"
+            " WHERE child.parent_path IS NOT NULL AND parent.id IS NULL"
+        ),
+    ),
 )
 
 
@@ -87,7 +96,7 @@ def _check_not_empty(connection: sqlite3.Connection) -> list[str]:
     empty corpus, indistinguishable from a good one to anything downstream.
     """
     violations: list[str] = []
-    for table in ("standard", "edition", "clause", "clause_fts"):
+    for table in ("standard", "edition", "clause", "clause_fts", "corpus_meta"):
         (count,) = connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         if count == 0:
             violations.append(f"{table}: таблица пуста - корпус собран некорректно")
