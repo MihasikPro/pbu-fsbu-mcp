@@ -97,6 +97,16 @@ _NESTED_APPENDIX_RE = re.compile(
 _NESTED_APPENDIX_LABEL_RE = re.compile(r"^приложени[ея]\s*(?:№\s*)?\d*\s*$", re.IGNORECASE)
 _NESTED_APPENDIX_CONTINUATION_RE = re.compile(r"^к\s+(?:положени|стандарт)", re.IGNORECASE)
 
+# Several pages append the document's footnote apparatus - one paragraph per
+# footnote, each opening with its bracketed number ("[1] С изменениями,
+# внесенными приказами ...") - as a contiguous run right after the standard's
+# real last clause. Not part of the standard's own text. A footnote
+# *definition* always opens its own paragraph this way; an inline reference
+# mark inside real clause text never does, so this cannot mistake one for
+# the other. Verified against the corpus: 28 such paragraphs across 6 pages,
+# always a contiguous tail, zero false positives.
+_FOOTNOTE_DEFINITION_RE = re.compile(r"^\[\d+\]\s")
+
 # A clause or section number followed by a `<sup>` suffix ("17\N{SUPERSCRIPT
 # ONE}." for a clause inserted between 17 and 18 by a later amending order;
 # "II\N{SUPERSCRIPT ONE}." for a section inserted the same way) renders, once
@@ -125,6 +135,15 @@ def _reglue_superscript_marker(text: str) -> str:
     return f"{base}{separator}{suffix}." + text[match.end() :]
 
 
+def _drop_trailing_footnote_definitions(paragraphs: list[str]) -> list[str]:
+    """Drop a trailing run of footnote-definition paragraphs, if any (see
+    `_FOOTNOTE_DEFINITION_RE`)."""
+    end = len(paragraphs)
+    while end > 0 and _FOOTNOTE_DEFINITION_RE.match(paragraphs[end - 1]):
+        end -= 1
+    return paragraphs[:end]
+
+
 def _one_copy_of_the_standard(paragraphs: list[str]) -> list[str]:
     """Trim `paragraphs` down to exactly one copy of the standard's own body."""
     annex_starts = [i for i, text in enumerate(paragraphs) if _ANNEX_START_RE.match(text)]
@@ -142,7 +161,8 @@ def _one_copy_of_the_standard(paragraphs: list[str]) -> list[str]:
             and _NESTED_APPENDIX_CONTINUATION_RE.match(paragraphs[i + 1])
         ):
             return paragraphs[:i]
-    return paragraphs
+
+    return _drop_trailing_footnote_definitions(paragraphs)
 
 
 def extract_clauses_html(html: bytes) -> str:

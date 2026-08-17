@@ -8,6 +8,7 @@ FIXTURE_PBU_1_2008 = Path(__file__).parent / "fixtures" / "minfin_document_pbu_1
 FIXTURE_PBU_10_99 = Path(__file__).parent / "fixtures" / "minfin_document_pbu_10_99.html"
 FIXTURE_FSBU_27_2021 = Path(__file__).parent / "fixtures" / "pages" / "fsbu-27-2021.html"
 FIXTURE_PBU_8_2010 = Path(__file__).parent / "fixtures" / "pages" / "pbu-8-2010.html"
+FIXTURE_FSBU_28_2023 = Path(__file__).parent / "fixtures" / "pages" / "fsbu-28-2023.html"
 
 
 # --- extract_clauses_html: small, handcrafted markup -----------------------
@@ -245,3 +246,54 @@ def test_pbu_8_2010_clause_28_does_not_swallow_its_appendix() -> None:
     clauses = {clause.path: clause for clause in parse_clauses(text)}
     assert "Приложение" not in clauses["28"].text
     assert len(clauses["28"].text) < 1000
+
+
+# --- Trailing footnote apparatus (handcrafted markup) ------------------------
+
+
+def test_drops_a_trailing_run_of_footnote_definitions() -> None:
+    html = (
+        "<div class='text_wrapper'>"
+        "<p>1. Текст пункта.</p>"
+        "<p>2. Последний пункт стандарта.</p>"
+        "<p>[1] С изменениями, внесенными приказом от 01.01.2020 № 1н.</p>"
+        "<p>[2] С изменениями, внесенными приказом от 02.02.2021 № 2н.</p>"
+        "</div>"
+    ).encode()
+    text = extract_clauses_html(html)
+    assert text == "1. Текст пункта.\n\n2. Последний пункт стандарта."
+
+
+def test_a_wholly_footnote_document_yields_no_extra_clause() -> None:
+    # fsbu-28-2023 п.35.заключение: every trailing paragraph was a footnote
+    # definition, so nothing real is left once they are dropped - there must
+    # be no clause left standing in their place.
+    html = (
+        "<div class='text_wrapper'>"
+        "<p>1. Единственный настоящий пункт.</p>"
+        "<p>[1] Сноска первая.</p>"
+        "<p>[2] Сноска вторая.</p>"
+        "</div>"
+    ).encode()
+    clauses = parse_clauses(extract_clauses_html(html))
+    assert [clause.path for clause in clauses] == ["1"]
+
+
+def test_does_not_drop_an_inline_footnote_reference_mark() -> None:
+    # An inline reference mark ("...требования[1] в соответствии...") never
+    # opens its own paragraph, unlike a footnote *definition* - it must
+    # survive untouched.
+    html = "<div class='text_wrapper'><p>1. Текст со ссылкой[1] на сноску.</p></div>".encode()
+    assert extract_clauses_html(html) == "1. Текст со ссылкой[1] на сноску."
+
+
+# --- Real ФСБУ 28/2023 page (committed fixture) ------------------------------
+# `pages/fsbu-28-2023.html` is a byte-for-byte copy of the standard's own
+# Minfin page - п.35.заключение was entirely footnote text (a wholly
+# fabricated clause) before this fix.
+
+
+def test_fsbu_28_2023_no_longer_has_a_wholly_footnote_clause() -> None:
+    text = extract_clauses_html(FIXTURE_FSBU_28_2023.read_bytes())
+    paths = {clause.path for clause in parse_clauses(text)}
+    assert "35.заключение" not in paths
