@@ -54,6 +54,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["anyio: async tests running on the anyio backend"]
 # The default temp root (%LOCALAPPDATA%\Temp\pytest-of-<user>) is ACL-locked on
 # the current development machine, which breaks every tmp_path fixture. A
 # repo-local basetemp keeps test runs reproducible regardless of machine state.
