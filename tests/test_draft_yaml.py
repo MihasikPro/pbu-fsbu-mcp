@@ -296,13 +296,13 @@ def test_regenerated_fsbu_6_2020_draft_has_no_duplicates_and_matches_gold_clause
     paths = [clause["path"] for clause in document["editions"][0]["clauses"]]
 
     gold = yaml.safe_load(_GOLD_FSBU_6_2020.read_text(encoding="utf-8"))
-    gold_paths = [clause["path"] for clause in gold["editions"][0]["clauses"]]
-    # The two ".заключение" splits in the gold file are a manual editorial
-    # correction that no text-only parser can reproduce (see test_clause_parser.py).
-    reproducible_gold_paths = {path for path in gold_paths if "заключение" not in path}
+    gold_paths = {clause["path"] for clause in gold["editions"][0]["clauses"]}
 
     assert len(paths) == len(set(paths)), "duplicate clause paths in the regenerated draft"
-    assert set(paths) == reproducible_gold_paths
+    # Including the two ".заключение" splits (13.заключение, 20.заключение):
+    # the parser now derives them structurally rather than relying on a
+    # manual editorial fix (see test_clause_parser.py).
+    assert set(paths) == gold_paths
 
 
 def test_main_threads_the_live_flag_into_fetch(

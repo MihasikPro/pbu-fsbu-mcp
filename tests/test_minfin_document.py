@@ -90,11 +90,18 @@ def test_fsbu_6_2020_yields_the_hand_verified_clause_count() -> None:
     text = extract_clauses_html(FIXTURE_FSBU_6_2020.read_bytes())
     clauses = parse_clauses(text)
     top_level = {clause.path for clause in clauses if clause.parent_path is None}
-    lettered = {clause.path for clause in clauses if clause.parent_path is not None}
+    lettered = {
+        clause.path
+        for clause in clauses
+        if clause.parent_path is not None and "заключение" not in clause.path
+    }
+    conclusions = {clause.path for clause in clauses if "заключение" in clause.path}
     # Hand-verified against data/sources/standards/fsbu-6-2020.yaml: 52
-    # numbered clauses, 50 lettered subclauses.
+    # numbered clauses, 50 lettered subclauses, 2 trailing-paragraph
+    # conclusions (13.заключение, 20.заключение).
     assert len(top_level) == 52
     assert len(lettered) == 50
+    assert len(conclusions) == 2
     assert looks_complete(text)
 
 

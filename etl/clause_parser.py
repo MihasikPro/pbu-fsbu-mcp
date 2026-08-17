@@ -179,18 +179,66 @@ def parse_clauses(text: str) -> list[ParsedClause]:
     discarded, along with every subclause and continuation paragraph that
     follows it, up to the next block that either resumes the real sequence or
     opens a genuine section heading.
+
+    A paragraph that follows a lettered subclause is ambiguous on its own: it
+    might still be that subclause's own text, wrapped across a spurious blank
+    line (a source page break routinely splits one sentence into two blocks
+    this way - see the "45.ж" -> "45.з" case in the parser tests), or it might
+    be the enclosing clause's closing remark that governs the whole lettered
+    list rather than any single option in it (see clauses 13 and 20 of ФСБУ
+    6/2020: "Выбранный способ ... применяется ко всей группе основных
+    средств." is not part of option "б", it is a statement about clause 13 as
+    a whole). Which one it is can only be told from what comes *next*, so such
+    a paragraph is buffered in `trailer` rather than committed immediately:
+    - if another subclause of the same list follows, the enumeration is
+      still open, so the buffered text was that subclause's own continuation
+      and is merged back into it;
+    - if a new clause, a section heading, or the end of the document follows
+      instead, the enumeration is over, so the buffered text is emitted as a
+      single `<clause>.заключение` pseudo-subclause attached to the clause
+      as a whole (several trailing paragraphs are joined into that one entry,
+      the same way an ordinary multi-paragraph clause body is joined, rather
+      than inventing several numbered conclusions the source has no marker
+      for).
+    This is a syntactic heuristic, not a semantic one: a subclause whose own
+    text is genuinely split across a blank line right before the *last* item
+    of its list (no further subclause to resolve it against) would be
+    misread as the clause's conclusion. That shape has not been observed in
+    the corpus - the last item of a list is consistently either the end of a
+    single block or ends the enumeration outright - but it is the failure
+    mode to watch for if a future standard's text is laid out that way.
     """
     heading: str | None = None
     last_top_level: str | None = None
     last_top_level_key: tuple[int, int] | None = None
     last_subclause_letter: str | None = None
     current: _OpenClause | None = None
+    trailer: list[str] = []
     discarding = False
     clauses: list[_OpenClause] = []
+
+    def flush_trailer() -> None:
+        """Emit any buffered trailer as the current subclause's parent's conclusion.
+
+        Only called at a point where a subclause's own continuation has
+        definitely ended (a new clause, heading, or end of document), so
+        whatever is still open in `current` (if it is a subclause) is exactly
+        the last subclause the trailer was tentatively attached to.
+        """
+        nonlocal trailer
+        if trailer and current is not None and current.parent_path is not None:
+            parent_path = current.parent_path
+            conclusion = _OpenClause(
+                path=f"{parent_path}.заключение", parent_path=parent_path, heading=None
+            )
+            conclusion.parts.extend(trailer)
+            clauses.append(conclusion)
+        trailer = []
 
     for raw_block in _blocks(_PAGE_FURNITURE_RE.sub("", text)):
         section_heading = _match_section_heading(raw_block)
         if section_heading is not None:
+            flush_trailer()
             heading = section_heading
             # A heading never appears mid-clause in a well-formed document;
             # closing the open clause here stops unrelated stray text from
@@ -208,6 +256,12 @@ def parse_clauses(text: str) -> list[ParsedClause]:
         if subclause_letter is not None and discarding:
             continue
         if subclause_letter is not None and last_top_level is not None:
+            # The enumeration continues, so the buffered trailer was the
+            # previous subclause's own text after all - fold it back in
+            # before moving on, instead of losing it to the new subclause.
+            if trailer and current is not None:
+                current.parts.extend(trailer)
+            trailer = []
             current = _OpenClause(
                 path=f"{last_top_level}.{subclause_letter}",
                 parent_path=last_top_level,
@@ -222,9 +276,11 @@ def parse_clauses(text: str) -> list[ParsedClause]:
         if clause_match:
             key = _clause_number_key(clause_match["number"])
             if last_top_level_key is not None and key <= last_top_level_key:
+                flush_trailer()
                 discarding = True
                 current = None
                 continue
+            flush_trailer()
             last_top_level = clause_match["number"]
             last_top_level_key = key
             last_subclause_letter = None
@@ -238,8 +294,15 @@ def parse_clauses(text: str) -> list[ParsedClause]:
             continue
 
         if current is not None:
-            current.parts.append(block)
+            if current.parent_path is not None:
+                # `current` is a lettered subclause: whether this paragraph
+                # belongs to it or concludes the enclosing clause is not yet
+                # decidable - see `flush_trailer` and the docstring above.
+                trailer.append(block)
+            else:
+                current.parts.append(block)
 
+    flush_trailer()
     return [clause.finalize() for clause in clauses]
 
 

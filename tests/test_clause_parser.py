@@ -122,6 +122,160 @@ def test_decimal_clause_without_a_closing_dot_has_clean_text() -> None:
     assert clause.text == "Организации вправе применять упрощенные способы учета."
 
 
+# --- Trailing paragraphs after a lettered subclause list --------------------
+#
+# A paragraph that closes a lettered list (e.g. "Выбранный способ ...
+# применяется ко всей группе основных средств." after options "а)"/"б)" of
+# ФСБУ 6/2020's clause 13) belongs to the enclosing clause as a whole, not to
+# whichever subclause happens to be last. It surfaces as its own
+# "<clause>.заключение" entry instead of being glued onto the last subclause
+# or onto the parent's own lead-in text.
+
+_TRAILING_CONCLUSION_SAMPLE = """
+13. После признания объект оценивается одним из следующих способов:
+
+а) по первоначальной стоимости;
+
+б) по переоцененной стоимости.
+
+Выбранный способ последующей оценки применяется ко всей группе объектов.
+
+14. Следующий пункт не содержит списка.
+"""
+
+
+def test_trailing_paragraph_after_a_lettered_list_becomes_a_conclusion() -> None:
+    clauses = {clause.path: clause for clause in parse_clauses(_TRAILING_CONCLUSION_SAMPLE)}
+    assert clauses["13.заключение"].parent_path == "13"
+    assert clauses["13.заключение"].heading is None
+    assert (
+        clauses["13.заключение"].text
+        == "Выбранный способ последующей оценки применяется ко всей группе объектов."
+    )
+
+
+def test_conclusion_is_not_glued_onto_the_last_subclause() -> None:
+    clause = next(
+        item for item in parse_clauses(_TRAILING_CONCLUSION_SAMPLE) if item.path == "13.б"
+    )
+    assert clause.text == "по переоцененной стоимости."
+
+
+def test_conclusion_is_not_glued_onto_the_parents_own_lead_in() -> None:
+    clause = next(
+        item for item in parse_clauses(_TRAILING_CONCLUSION_SAMPLE) if item.path == "13"
+    )
+    assert clause.text == "После признания объект оценивается одним из следующих способов:"
+
+
+_MULTI_PARAGRAPH_CONCLUSION_SAMPLE = """
+20. Список способов списания:
+
+а) первый способ;
+
+б) второй способ.
+
+Первый абзац заключения.
+
+Второй абзац заключения.
+
+21. Следующий пункт.
+"""
+
+
+def test_several_trailing_paragraphs_are_joined_into_one_conclusion() -> None:
+    clause = next(
+        item
+        for item in parse_clauses(_MULTI_PARAGRAPH_CONCLUSION_SAMPLE)
+        if item.path == "20.заключение"
+    )
+    assert clause.text == "Первый абзац заключения. Второй абзац заключения."
+
+
+_CONCLUSION_AT_END_OF_DOCUMENT_SAMPLE = """
+20. Список способов:
+
+а) первый способ;
+
+б) второй способ.
+
+Итоговое положение о применении способа.
+"""
+
+
+def test_trailing_paragraph_at_the_end_of_the_document_still_becomes_a_conclusion() -> None:
+    clauses = {
+        clause.path: clause for clause in parse_clauses(_CONCLUSION_AT_END_OF_DOCUMENT_SAMPLE)
+    }
+    assert clauses["20.заключение"].text == "Итоговое положение о применении способа."
+
+
+# A subclause's own text is sometimes wrapped across a spurious blank line by
+# a mid-sentence page break (see ФСБУ 6/2020's clause 45, options "ж"/"з" in
+# the real OCR fixture below) rather than by an actual paragraph break in the
+# source. That must stay part of the subclause it interrupts, not be read as
+# the enclosing clause's conclusion - the signal that tells the two apart is
+# what block comes *next*: here it is another subclause of the same list, so
+# the buffered paragraph is folded back into "ж", not split off.
+
+_SUBCLAUSE_SPLIT_BY_BLANK_LINE_SAMPLE = """
+45. В отчетности раскрывается следующая информация:
+
+ж) результат обесценения, включенный в состав
+
+расходов или доходов отчетного периода;
+
+з) балансовая стоимость объектов на отчетную дату.
+
+46. Следующий пункт.
+"""
+
+
+def test_subclause_text_split_by_a_stray_blank_line_stays_in_one_subclause() -> None:
+    clause = next(
+        item
+        for item in parse_clauses(_SUBCLAUSE_SPLIT_BY_BLANK_LINE_SAMPLE)
+        if item.path == "45.ж"
+    )
+    assert clause.text == (
+        "результат обесценения, включенный в состав расходов или доходов отчетного периода;"
+    )
+
+
+def test_subclause_text_split_by_a_blank_line_does_not_spawn_a_conclusion() -> None:
+    paths = [clause.path for clause in parse_clauses(_SUBCLAUSE_SPLIT_BY_BLANK_LINE_SAMPLE)]
+    assert "45.заключение" not in paths
+
+
+# --- A lettered list with no trailing paragraph: no conclusion is invented --
+
+_LIST_WITHOUT_CONCLUSION_SAMPLE = """
+18. Сумма дооценки основных средств:
+
+а) отражается в составе финансового результата периода;
+
+б) признается доходом периода.
+
+19. Следующий пункт.
+"""
+
+
+def test_a_lettered_list_with_no_trailing_paragraph_has_no_conclusion() -> None:
+    paths = [clause.path for clause in parse_clauses(_LIST_WITHOUT_CONCLUSION_SAMPLE)]
+    assert {"18", "18.а", "18.б", "19"} <= set(paths)
+    assert "18.заключение" not in paths
+
+
+# --- A clause with no lettered list at all is unaffected --------------------
+
+
+def test_a_clause_with_no_list_at_all_gets_no_conclusion() -> None:
+    paths = [clause.path for clause in parse_clauses(SAMPLE)]
+    assert "1.заключение" not in paths
+    assert "4.заключение" not in paths
+    assert "5.заключение" not in paths
+
+
 # --- slice_appendix: isolating one standard's appendix ---------------------
 #
 # A single order routinely enacts several standards, each as its own
@@ -187,10 +341,12 @@ def test_slice_appendix_does_not_confuse_a_number_with_its_suffix() -> None:
 # test below skips gracefully when it is absent - e.g. in a fresh checkout or
 # in CI. Lines 106-866 (1-indexed) of that dump hold FSBU 6/2020; the
 # hand-verified target is `data/sources/standards/fsbu-6-2020.yaml`, which
-# *is* committed. The YAML also contains OCR corrections and two editorial
-# ".заключение" splits (13.заключение, 20.заключение) that no text-only
-# parser can reproduce, so these tests check clause/subclause *coverage*
-# against the YAML's paths rather than byte-for-byte text equality.
+# *is* committed. The YAML also contains manual OCR corrections (spelling,
+# hyphenation) no text-only parser can reproduce, so most tests below check
+# clause/subclause *coverage* against the YAML's paths rather than
+# byte-for-byte text equality. The two editorial ".заключение" splits
+# (13.заключение, 20.заключение) *are* structural, not OCR corrections, and
+# are checked explicitly further down.
 
 _REPO_ROOT = Path(__file__).parent.parent
 _OCR_FIXTURE = _REPO_ROOT / ".superpowers" / "sdd" / "source" / "prikaz_204n_ocr.txt"
@@ -208,33 +364,49 @@ def _parse_real_fsbu_6_2020() -> list:
     return parse_clauses(fsbu_6_2020_text)
 
 
-def _gold_clause_paths() -> tuple[set[str], set[str]]:
+def _gold_clause_paths() -> tuple[set[str], set[str], set[str]]:
     gold = yaml.safe_load(_GOLD_FSBU_6_2020.read_text(encoding="utf-8"))
     paths = [clause["path"] for clause in gold["editions"][0]["clauses"]]
     top_level = {path for path in paths if "." not in path}
     lettered = {path for path in paths if "." in path and "заключение" not in path}
-    return top_level, lettered
+    conclusions = {path for path in paths if "заключение" in path}
+    return top_level, lettered, conclusions
 
 
 @requires_real_ocr_fixture
 def test_finds_every_hand_verified_top_level_clause() -> None:
     parsed_paths = {clause.path for clause in _parse_real_fsbu_6_2020()}
-    top_level, _ = _gold_clause_paths()
+    top_level, _, _ = _gold_clause_paths()
     assert top_level <= parsed_paths
 
 
 @requires_real_ocr_fixture
 def test_finds_every_hand_verified_subclause() -> None:
     parsed_paths = {clause.path for clause in _parse_real_fsbu_6_2020()}
-    _, lettered = _gold_clause_paths()
+    _, lettered, _ = _gold_clause_paths()
     assert lettered <= parsed_paths
 
 
 @requires_real_ocr_fixture
 def test_does_not_invent_paths_outside_the_hand_verified_set() -> None:
     parsed_paths = {clause.path for clause in _parse_real_fsbu_6_2020()}
-    top_level, lettered = _gold_clause_paths()
-    assert parsed_paths == top_level | lettered
+    top_level, lettered, conclusions = _gold_clause_paths()
+    assert parsed_paths == top_level | lettered | conclusions
+
+
+@requires_real_ocr_fixture
+def test_reproduces_the_hand_verified_conclusion_paths() -> None:
+    # clauses 13 and 20 are the source of the ".заключение" convention itself
+    # (see `data/sources/standards/fsbu-6-2020.yaml`) - the parser must now
+    # produce them on its own rather than relying on the hand fix.
+    clauses = {clause.path: clause for clause in _parse_real_fsbu_6_2020()}
+    assert clauses["13.заключение"].parent_path == "13"
+    assert clauses["20.заключение"].parent_path == "20"
+    assert "средств." in clauses["13.заключение"].text
+    assert "средств." in clauses["20.заключение"].text
+    # Neither conclusion is glued onto the last subclause of its list.
+    assert "Выбранный способ" not in clauses["13.б"].text
+    assert "Принятый организацией" not in clauses["20.б"].text
 
 
 @requires_real_ocr_fixture
@@ -317,5 +489,5 @@ def test_slice_appendix_fsbu_26_2020_is_the_complement_of_fsbu_6_2020() -> None:
 @requires_real_ocr_fixture
 def test_slice_appendix_fsbu_6_2020_matches_the_hand_verified_clause_set() -> None:
     parsed_paths = {c.path for c in parse_clauses(slice_appendix(_real_order_text(), "6/2020"))}
-    top_level, lettered = _gold_clause_paths()
-    assert parsed_paths == top_level | lettered
+    top_level, lettered, conclusions = _gold_clause_paths()
+    assert parsed_paths == top_level | lettered | conclusions
