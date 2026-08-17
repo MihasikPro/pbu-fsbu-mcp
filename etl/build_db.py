@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sources", type=Path, default=Path("data/sources/standards"))
     parser.add_argument("--output", type=Path, default=Path("data/build/pbu_fsbu.db"))
     args = parser.parse_args(argv)
-    build(args.sources, args.output, built_at=date.today())  # noqa: DTZ011
+    build(args.sources, args.output, built_at=date.today())
     return 0
 
 

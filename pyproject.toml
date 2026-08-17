@@ -34,6 +34,14 @@ packages = ["src/pbu_fsbu_mcp"]
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+# DTZ011 pushes `date.today()` towards a timezone-aware call. This server answers
+# "what did the standard say on date X" against a local calendar date, and every
+# tool takes an explicit `on_date` when determinism matters - `date.today()` is
+# only the default. Accepting it once here beats scattering noqa across every
+# tool module.
+ignore = ["DTZ011"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
