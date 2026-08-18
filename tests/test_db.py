@@ -263,6 +263,136 @@ def test_mapping_status_is_verified_only_when_every_applicable_row_is(
     assert summary.mapping_status is MappingStatus.VERIFIED
 
 
+def test_mappings_for_returns_empty_list_when_standard_not_yet_in_force(tmp_path: Path) -> None:
+    """A mapping row on a real, known standard whose first edition has not taken
+    effect yet as of `built_at()` must not raise NoEditionOnDate through
+    `mappings_for` - it simply has no applicable rows yet."""
+    standards_dir = tmp_path / "sources" / "standards"
+    standards_dir.mkdir(parents=True)
+    (standards_dir / "test-std.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "test-std",
+                "kind": "ФСБУ",
+                "number": "99/2099",
+                "year": 2020,
+                "title": "Тестовый стандарт",
+                "order_date": "2020-01-01",
+                "order_no": "1н",
+                "effective_from": "2020-01-01",
+                "source_url": "https://example.org/test-std",
+                "editions": [
+                    {
+                        "edition_no": 1,
+                        "amending_order": None,
+                        "effective_from": "2020-01-01",
+                        "clauses": [
+                            {
+                                "path": "1",
+                                "parent_path": None,
+                                "heading": None,
+                                "text": "Текст пункта.",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output = tmp_path / "corpus.db"
+    # built_at is before the standard's own effective_from: no edition is in
+    # force yet as of the date mappings_for anchors itself to.
+    build(standards_dir, output, built_at=date(2019, 1, 1))
+
+    connection = sqlite3.connect(output)
+    connection.execute(
+        "INSERT INTO mapping"
+        " (standard_id, clause_path, edition_from, config, version_from, kind, object_ref,"
+        " note, confidence)"
+        " VALUES ('test-std', '1', NULL, 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
+    )
+    connection.commit()
+    connection.close()
+
+    assert Corpus(output).mappings_for("test-std", None, "bp30") == []
+
+
+def test_mappings_for_excludes_a_row_whose_clause_was_dropped_by_an_amendment(
+    tmp_path: Path,
+) -> None:
+    """A mapping targets edition 1's clause '1'; edition 2 drops that path
+    entirely. Once edition 2 is in force, the row must stop resolving - it is a
+    statement about clause '1', which no longer exists - instead of silently
+    continuing to answer for wording that is gone. Checked across all three
+    edition-aware read paths so they cannot drift apart on this again."""
+    standards_dir = tmp_path / "sources" / "standards"
+    standards_dir.mkdir(parents=True)
+    (standards_dir / "test-std.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "test-std",
+                "kind": "ФСБУ",
+                "number": "99/2099",
+                "year": 2020,
+                "title": "Тестовый стандарт с двумя редакциями",
+                "order_date": "2020-01-01",
+                "order_no": "1н",
+                "effective_from": "2020-01-01",
+                "source_url": "https://example.org/test-std",
+                "editions": [
+                    {
+                        "edition_no": 1,
+                        "amending_order": None,
+                        "effective_from": "2020-01-01",
+                        "clauses": [
+                            {
+                                "path": "1",
+                                "parent_path": None,
+                                "heading": None,
+                                "text": "Текст пункта 1 первой редакции.",
+                            }
+                        ],
+                    },
+                    {
+                        "edition_no": 2,
+                        "amending_order": "2н",
+                        "effective_from": "2022-01-01",
+                        "clauses": [
+                            {
+                                "path": "2",
+                                "parent_path": None,
+                                "heading": None,
+                                "text": "Пункт 1 исключен; текст пункта 2 второй редакции.",
+                            }
+                        ],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output = tmp_path / "corpus.db"
+    build(standards_dir, output, built_at=date(2023, 1, 1))
+
+    connection = sqlite3.connect(output)
+    connection.execute(
+        "INSERT INTO mapping"
+        " (standard_id, clause_path, edition_from, config, version_from, kind, object_ref,"
+        " note, confidence)"
+        " VALUES ('test-std', '1', NULL, 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
+    )
+    connection.commit()
+    connection.close()
+
+    corpus = Corpus(output)
+    assert corpus.mappings_for("test-std", None, "bp30") == []
+    assert corpus.get_standard("test-std", date(2023, 1, 1)).mapping_status is MappingStatus.NONE
+    assert corpus.clauses_by_object("01.01", "bp30") == []
+
+
 def test_corpus_opens_under_a_path_containing_a_hash(
     corpus_db: Path, tmp_path: Path
 ) -> None:

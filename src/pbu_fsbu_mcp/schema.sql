@@ -14,13 +14,22 @@ CREATE TABLE standard (
     source_url     TEXT NOT NULL
 );
 
+-- Every "which edition is in force on date X" read path (db.py's
+-- `_EDITION_IN_FORCE_SQL`, and `temporal.resolve_edition` via `_edition`) picks
+-- the edition with the newest `effective_from` not after X. Two editions of the
+-- same standard tied on `effective_from` would make that pick ambiguous - SQL's
+-- `MAX(effective_from)` and Python's `max()` are not guaranteed to break such a
+-- tie the same way. `UNIQUE (standard_id, effective_from)` below forbids the tie
+-- outright, which is simpler and more robust than trying to keep two independent
+-- implementations agreeing on a tie-break rule forever.
 CREATE TABLE edition (
     id             TEXT PRIMARY KEY,
     standard_id    TEXT NOT NULL REFERENCES standard(id),
     edition_no     INTEGER NOT NULL,
     amending_order TEXT,
     effective_from TEXT NOT NULL,
-    UNIQUE (standard_id, edition_no)
+    UNIQUE (standard_id, edition_no),
+    UNIQUE (standard_id, effective_from)
 );
 
 CREATE TABLE clause (

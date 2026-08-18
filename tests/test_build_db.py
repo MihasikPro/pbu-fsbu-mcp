@@ -60,6 +60,38 @@ editions:
 """
 
 
+_TIED_EDITIONS_STANDARD = """\
+id: exp-std-tied-editions
+kind: ФСБУ
+number: "2/2099"
+year: 2099
+title: Экспериментальный стандарт с совпадающими датами редакций
+order_date: 2020-01-01
+order_no: 1н
+effective_from: 2020-01-01
+effective_to: null
+superseded_by: null
+source_url: https://example.org/tied
+editions:
+  - edition_no: 1
+    amending_order: null
+    effective_from: 2020-01-01
+    clauses:
+      - path: "1"
+        parent_path: null
+        heading: null
+        text: Текст пункта первой редакции.
+  - edition_no: 2
+    amending_order: 2н
+    effective_from: 2020-01-01
+    clauses:
+      - path: "1"
+        parent_path: null
+        heading: null
+        text: Текст пункта второй редакции.
+"""
+
+
 def _write_colliding_sources(directory: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "a.yaml").write_text(_COLLIDING_STANDARD_A, encoding="utf-8")
@@ -145,6 +177,21 @@ def test_failed_rebuild_leaves_existing_database_untouched(tmp_path: Path) -> No
     (clause_count_after,) = connection.execute("SELECT COUNT(*) FROM clause").fetchone()
     connection.close()
     assert clause_count_after == clause_count_before
+
+
+def test_two_editions_of_one_standard_cannot_share_effective_from(tmp_path: Path) -> None:
+    """`UNIQUE (standard_id, effective_from)` in schema.sql - see db.py's
+    `_EDITION_IN_FORCE_SQL` for why a tie here would make "which edition is
+    in force on this date" genuinely ambiguous, not just untidy."""
+    sources = tmp_path / "tied_sources"
+    sources.mkdir(parents=True)
+    (sources / "tied.yaml").write_text(_TIED_EDITIONS_STANDARD, encoding="utf-8")
+    output = tmp_path / "corpus.db"
+
+    with pytest.raises(sqlite3.IntegrityError):
+        build(sources, output, built_at=date(2026, 8, 14))
+
+    assert not output.exists()
 
 
 def test_failed_rebuild_leaves_no_temporary_file(tmp_path: Path) -> None:

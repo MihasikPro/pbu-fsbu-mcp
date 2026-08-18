@@ -35,6 +35,22 @@ _CHECKS: tuple[tuple[str, str], ...] = (
         ),
     ),
     (
+        # Defense in depth alongside `UNIQUE (standard_id, effective_from)` in
+        # `schema.sql`: that constraint stops a *fresh* build from ever producing
+        # this state, but a `.db` file built before the constraint existed (or
+        # hand-edited outside `etl.build_db`) can still carry it, and "which
+        # edition is in force on this date" is ambiguous whenever it does.
+        (
+            "edition: у стандарта несколько редакций с одинаковой effective_from"
+            " (какая из них 'действующая на дату' - неоднозначно)"
+        ),
+        (
+            "SELECT standard_id FROM edition"
+            " GROUP BY standard_id, effective_from"
+            " HAVING COUNT(*) > 1"
+        ),
+    ),
+    (
         "mapping: маппинг ссылается на несуществующий пункт",
         (
             "SELECT DISTINCT mapping.id FROM mapping"
