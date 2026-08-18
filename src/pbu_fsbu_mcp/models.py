@@ -106,6 +106,31 @@ class CrosslinkSource(BaseModel):
     kind: Literal["заменён", "аналог", "отсылка"]
 
 
+class MappingSource(BaseModel):
+    """One projection row as authored in a `data/sources/mappings/<config>/*.yaml` file.
+
+    Keyed on `clause_path`, not a `clause.id` - see `schema.sql` on the `mapping`
+    table for why. `edition_from` is the earliest edition (by `edition_no`) this
+    row applies to; `None` means "since the standard's first edition".
+    """
+
+    clause_path: str
+    kind: str
+    object_ref: str
+    note: str | None = None
+    confidence: int = Field(ge=0, le=100)
+    edition_from: int | None = None
+
+
+class MappingFile(BaseModel):
+    """One `data/sources/mappings/<config>/*.yaml` file."""
+
+    standard_id: str
+    config: str
+    version_from: str | None = None
+    mappings: list[MappingSource] = Field(default_factory=list)
+
+
 class ClauseResponse(BaseModel):
     """A single clause with full provenance."""
 
