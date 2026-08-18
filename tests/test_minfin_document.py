@@ -283,12 +283,20 @@ def test_a_wholly_footnote_document_yields_no_extra_clause() -> None:
     assert [clause.path for clause in clauses] == ["1"]
 
 
-def test_does_not_drop_an_inline_footnote_reference_mark() -> None:
+def test_strips_an_inline_footnote_reference_mark() -> None:
     # An inline reference mark ("...требования[1] в соответствии...") never
-    # opens its own paragraph, unlike a footnote *definition* - it must
-    # survive untouched.
+    # opens its own paragraph, unlike a footnote *definition*, so it is not
+    # caught by the trailing-definitions drop - but once the definition
+    # itself is gone (see the fixtures below), the mark would point at
+    # nothing the corpus still carries, so it is stripped too instead of
+    # being left dangling.
     html = "<div class='text_wrapper'><p>1. Текст со ссылкой[1] на сноску.</p></div>".encode()
-    assert extract_clauses_html(html) == "1. Текст со ссылкой[1] на сноску."
+    assert extract_clauses_html(html) == "1. Текст со ссылкой на сноску."
+
+
+def test_strips_an_inline_footnote_reference_mark_preceded_by_a_space() -> None:
+    html = "<div class='text_wrapper'><p>1. Текст со ссылкой [1], продолжение.</p></div>".encode()
+    assert extract_clauses_html(html) == "1. Текст со ссылкой, продолжение."
 
 
 # --- Real ФСБУ 28/2023 page (committed fixture) ------------------------------

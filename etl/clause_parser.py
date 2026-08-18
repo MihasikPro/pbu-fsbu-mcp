@@ -105,6 +105,27 @@ EDITORIAL_NOTE_RE = re.compile(
     r"^\([^()]*(?:в\s+ред\.\s+приказ|введен\w*\s+приказ)[^()]*\)$", re.IGNORECASE
 )
 
+# A heading's own trailing amendment-attribution note - e.g. ПБУ 18/02's
+# section II: "Постоянные и временные разницы (наименование в ред. приказа
+# Минфина России от 20.11.2018 № 236н)" - records when the *heading text
+# itself* was last renamed, never part of the title a reader would use to
+# identify the section. Unlike `EDITORIAL_NOTE_RE` above (which only matches
+# when the *entire* string is nothing but the note, for the trailer/
+# conclusion case), this one strips the note as a *suffix* of a longer
+# heading, so it applies to every heading source alike: a numbered
+# `_SECTION_RE` marker's own heading, an unnumbered sentinel-tagged
+# paragraph, and the plain-text `_match_section_heading` fallback. Same
+# content pattern as `EDITORIAL_NOTE_RE`, just anchored to the end of the
+# string instead of the whole of it.
+_TRAILING_EDITORIAL_NOTE_RE = re.compile(
+    r"\s*\([^()]*(?:в\s+ред\.\s+приказ|введен\w*\s+приказ)[^()]*\)\s*$", re.IGNORECASE
+)
+
+
+def _strip_trailing_editorial_note(heading: str) -> str:
+    return _TRAILING_EDITORIAL_NOTE_RE.sub("", heading).strip()
+
+
 # An appendix opens with a standalone line naming the standard it carries -
 # e.g. "ФСБУ 6/2020 «Основные средства»", usually directly under its own
 # "ФЕДЕРАЛЬНЫЙ СТАНДАРТ БУХГАЛТЕРСКОГО УЧЕТА" caption - and nothing else
@@ -255,23 +276,52 @@ def parse_clauses(text: str) -> list[ParsedClause]:
     the corpus - the last item of a list is consistently either the end of a
     single block or ends the enumeration outright - but it is the failure
     mode to watch for if a future standard's text is laid out that way.
+
+    A block that is none of the above - not a clause/subclause/heading
+    opener, and the document is not currently discarding an out-of-sequence
+    run - is *always* a continuation of whichever clause or subclause was
+    last opened, attached via `_last_clause()` below rather than a
+    once-per-iteration `current` pointer. A heading (numbered or not,
+    correctly recognised or a markup false positive - see
+    `etl/minfin_document.py`'s own worked-example table cells) does not
+    invalidate that attachment point: it only updates `heading`, the value
+    the *next* numbered clause will pick up. Two real standards depend on
+    this: pbu-18-02's own worked examples (пп.14-15) interleave centred
+    table cells and captions with the example's plain-text prose, all of it
+    still part of the enclosing clause; without this, every paragraph after
+    such a paragraph and before the next numbered clause vanished from the
+    corpus with no trace, which is a worse failure than a merely-wrong
+    `heading` value on the clause that follows.
     """
     heading: str | None = None
     last_top_level: str | None = None
     last_top_level_key: tuple[int, int] | None = None
     last_subclause_letter: str | None = None
-    current: _OpenClause | None = None
     trailer: list[str] = []
     discarding = False
     clauses: list[_OpenClause] = []
 
+    def last_clause() -> _OpenClause | None:
+        """The clause/subclause a plain paragraph attaches to right now.
+
+        Always `clauses[-1]` when anything has been opened yet - computed
+        fresh on every read instead of tracked in a separate `current`
+        variable, so nothing (a heading, a discarded out-of-sequence block)
+        can ever leave it stale or `None` while a real attachment point
+        still exists. `None` only before the document's first clause opens,
+        which is exactly when a stray paragraph *should* still be dropped
+        (title-page furniture, order references - see `minfin_document.
+        extract_clauses_html`'s own trimming of that material).
+        """
+        return clauses[-1] if clauses else None
+
     def flush_trailer() -> None:
-        """Emit any buffered trailer as the current subclause's parent's conclusion.
+        """Emit any buffered trailer as the last clause's/subclause's conclusion.
 
         Only called at a point where a subclause's own continuation has
-        definitely ended (a new clause, heading, or end of document), so
-        whatever is still open in `current` (if it is a subclause) is exactly
-        the last subclause the trailer was tentatively attached to.
+        definitely ended (a new clause, a heading, or end of document), so
+        `last_clause()` (if it is a subclause) is exactly the last subclause
+        the trailer was tentatively attached to.
 
         An editorial/amendment-attribution note (`EDITORIAL_NOTE_RE`) buffered
         here is not part of the conclusion's own text - see the regex's own
@@ -281,10 +331,11 @@ def parse_clauses(text: str) -> list[ParsedClause]:
         real trailing text (fsbu-26-2020 п.16) only the real text survives.
         """
         nonlocal trailer
-        if current is not None and current.parent_path is not None:
+        target = last_clause()
+        if target is not None and target.parent_path is not None:
             content = [part for part in trailer if not EDITORIAL_NOTE_RE.match(part)]
             if content:
-                parent_path = current.parent_path
+                parent_path = target.parent_path
                 conclusion = _OpenClause(
                     path=f"{parent_path}.заключение", parent_path=parent_path, heading=None
                 )
@@ -293,17 +344,20 @@ def parse_clauses(text: str) -> list[ParsedClause]:
         trailer = []
 
     def open_heading(new_heading: str) -> None:
-        """Start a new section, closing whatever clause is currently open.
+        """Start a new section without discarding whatever clause is open.
 
-        A heading never appears mid-clause in a well-formed document; closing
-        the open clause here stops unrelated stray text from ever being glued
-        onto it across a section boundary. It also unambiguously ends any run
-        of discarded, out-of-sequence blocks.
+        A heading only ever changes what `heading` value the *next* numbered
+        clause picks up; it deliberately does not touch the attachment point
+        `last_clause()` resolves to, so any paragraph between this heading
+        and the next real clause/subclause marker still lands on the clause
+        it document-order belongs to instead of vanishing (see the function
+        docstring's pbu-18-02 note). It does still end any run of
+        discarded, out-of-sequence blocks - a heading is an unambiguous
+        resynchronisation point regardless of what came right before it.
         """
-        nonlocal heading, current, discarding
+        nonlocal heading, discarding
         flush_trailer()
         heading = new_heading
-        current = None
         discarding = False
 
     for raw_block in _blocks(_PAGE_FURNITURE_RE.sub("", text)):
@@ -313,7 +367,7 @@ def parse_clauses(text: str) -> list[ParsedClause]:
             if marker_match is not None:
                 # A numbered heading - always applies, exactly like the
                 # plain-text path below.
-                open_heading(marker_match["heading"].strip())
+                open_heading(_strip_trailing_editorial_note(marker_match["heading"].strip()))
             elif last_top_level is not None:
                 # An unnumbered subsection title - only meaningful once the
                 # document's own front matter (title page, order references)
@@ -324,7 +378,7 @@ def parse_clauses(text: str) -> list[ParsedClause]:
                 # and only the document position tells them apart. Dropped
                 # silently here, exactly as it already was before this
                 # paragraph started carrying the sentinel.
-                open_heading(heading_candidate)
+                open_heading(_strip_trailing_editorial_note(heading_candidate))
             continue
 
         section_heading = _match_section_heading(raw_block)
@@ -343,16 +397,18 @@ def parse_clauses(text: str) -> list[ParsedClause]:
             # The enumeration continues, so the buffered trailer was the
             # previous subclause's own text after all - fold it back in
             # before moving on, instead of losing it to the new subclause.
-            if trailer and current is not None:
-                current.parts.extend(trailer)
+            if trailer:
+                previous = last_clause()
+                if previous is not None:
+                    previous.parts.extend(trailer)
             trailer = []
-            current = _OpenClause(
+            new_subclause = _OpenClause(
                 path=f"{last_top_level}.{subclause_letter}",
                 parent_path=last_top_level,
                 heading=None,
             )
-            current.parts.append(block[subclause_end:].strip())
-            clauses.append(current)
+            new_subclause.parts.append(block[subclause_end:].strip())
+            clauses.append(new_subclause)
             last_subclause_letter = subclause_letter
             continue
 
@@ -362,29 +418,29 @@ def parse_clauses(text: str) -> list[ParsedClause]:
             if last_top_level_key is not None and key <= last_top_level_key:
                 flush_trailer()
                 discarding = True
-                current = None
                 continue
             flush_trailer()
             last_top_level = clause_match["number"]
             last_top_level_key = key
             last_subclause_letter = None
             discarding = False
-            current = _OpenClause(path=last_top_level, parent_path=None, heading=heading)
-            current.parts.append(block[clause_match.end() :].strip())
-            clauses.append(current)
+            new_clause = _OpenClause(path=last_top_level, parent_path=None, heading=heading)
+            new_clause.parts.append(block[clause_match.end() :].strip())
+            clauses.append(new_clause)
             continue
 
         if discarding:
             continue
 
-        if current is not None:
-            if current.parent_path is not None:
-                # `current` is a lettered subclause: whether this paragraph
+        target = last_clause()
+        if target is not None:
+            if target.parent_path is not None:
+                # `target` is a lettered subclause: whether this paragraph
                 # belongs to it or concludes the enclosing clause is not yet
                 # decidable - see `flush_trailer` and the docstring above.
                 trailer.append(block)
             else:
-                current.parts.append(block)
+                target.parts.append(block)
 
     flush_trailer()
     return [clause.finalize() for clause in clauses]
@@ -434,7 +490,7 @@ def _match_section_heading(raw_block: str) -> str | None:
     if marker.isdigit() and marker != "1":
         return None
 
-    heading_text = match["heading"].strip()
+    heading_text = _strip_trailing_editorial_note(match["heading"].strip())
     if heading_text.endswith(_SENTENCE_END) or len(heading_text.split()) > _HEADING_MAX_WORDS:
         return None
 
