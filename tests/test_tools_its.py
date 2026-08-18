@@ -65,3 +65,26 @@ def test_standard_without_links_has_no_warning(corpus: Corpus) -> None:
     """No returned rows means no claim to warn about."""
     payload = get_its_references_payload(corpus, "pbu-13-2000", None)
     assert payload["warnings"] == []
+
+
+def test_unknown_standard_raises(corpus: Corpus) -> None:
+    """An unresolvable `standard_id` must be rejected, not answered with 'no links
+    yet' as if the standard existed - see `get_1c_mapping`/`get_clause`."""
+    with pytest.raises(ValueError, match="отсутствует в корпусе"):
+        get_its_references_payload(corpus, "fsbu-999-1999", None)
+
+
+def test_unknown_clause_path_raises(corpus: Corpus) -> None:
+    with pytest.raises(ValueError, match="нет пункта"):
+        get_its_references_payload(corpus, "fsbu-6-2020", "999")
+
+
+def test_clause_path_for_a_standard_not_yet_in_force_is_validated_against_its_first_edition(
+    corpus: Corpus,
+) -> None:
+    """fsbu-9-2025 takes effect 2027-01-01, after `corpus.built_at()` - a real
+    clause of its (only) edition must still resolve, falling back the same way
+    `get_clause` does for a pre-effective date."""
+    payload = get_its_references_payload(corpus, "fsbu-9-2025", "1")
+    assert payload["links"] == []
+    assert payload["message"]
