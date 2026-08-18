@@ -17,6 +17,12 @@ NO_MAPPING_MESSAGE = (
     "Отсутствие записей не означает, что стандарт не реализован в конфигурации."
 )
 
+ITS_SUMMARY_DISCLAIMER = (
+    "title и summary - краткая выжимка своими словами, составленная разработчиками "
+    "сервера, а не текст статьи ИТС и не текст нормы. Полный текст статьи "
+    "получите через fetch_its, текст пункта стандарта - через get_clause."
+)
+
 # Says something different from MAPPING_DISCLAIMER, on purpose: MAPPING_DISCLAIMER
 # says "this is an interpretation, not the norm itself"; this one says "and nobody
 # has checked whether the interpretation is even correct yet". Both travel together -

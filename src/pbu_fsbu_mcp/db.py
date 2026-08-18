@@ -86,6 +86,14 @@ def _py_lower(value: str | None) -> str | None:
     return value.lower() if value is not None else None
 
 
+def _escape_like_fragment(fragment: str) -> str:
+    """Escape `%`, `_` and `\\` in a user-supplied fragment before it reaches
+    SQL `LIKE ... ESCAPE '\\'`, so the fragment is matched as a literal
+    substring instead of `%`/`_` acting as LIKE wildcards - see `suggest_objects`.
+    """
+    return fragment.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _assert_thread_safe() -> None:
     """Fail loudly if this build cannot share one connection between threads."""
     if sqlite3.threadsafety < 3:
@@ -339,13 +347,18 @@ class Corpus:
         for why the schema now makes that impossible, kept here as a second line of
         defense against a duplicated result row rather than a duplicated fact.
         Lookup is case-insensitive - `object_ref` is normally typed by hand while
-        looking at a live configuration, casing of 1C names is not reliable.
+        looking at a live configuration, casing of 1C names is not reliable. Each
+        row carries its own (canonically cased) `object_ref` and a `presentation`
+        resolved from it via `_presentation` - `mappings_for` gives the object a
+        human-readable name the same way, and this reverse lookup must not answer
+        with only a bare identifier when the forward lookup does not.
         """
         sql = (
             "SELECT DISTINCT mapping.standard_id AS standard_id,"
             "       standard.title AS standard_title,"
             "       mapping.clause_path AS clause_path,"
             "       mapping.kind AS kind,"
+            "       mapping.object_ref AS object_ref,"
             "       mapping.note AS note,"
             "       mapping.confidence AS confidence,"
             "       mapping.verified AS verified"
@@ -361,7 +374,36 @@ class Corpus:
         rows = self._connection.execute(
             sql, (config, object_ref, self.built_at().isoformat())
         ).fetchall()
-        return [{**dict(row), "verified": bool(row["verified"])} for row in rows]
+        return [
+            {
+                **dict(row),
+                "verified": bool(row["verified"]),
+                # Looked up from the row's own (canonically cased) object_ref,
+                # not the caller's `object_ref` argument - the lookup above is
+                # case-insensitive, so the two can differ in casing.
+                "presentation": self._presentation(row["object_ref"], config),
+            }
+            for row in rows
+        ]
+
+    def known_configs(self) -> list[str]:
+        """Every configuration name that has an object catalogue, sorted.
+
+        Lets a caller distinguish "this config has no projection for this
+        object" from "this config isn't one the server knows about at all" -
+        see `is_known_config`.
+        """
+        rows = self._connection.execute(
+            "SELECT DISTINCT config FROM config_object ORDER BY config"
+        ).fetchall()
+        return [row["config"] for row in rows]
+
+    def is_known_config(self, config: str) -> bool:
+        """True if `config` has an object catalogue at all (e.g. "bp30")."""
+        row = self._connection.execute(
+            "SELECT 1 FROM config_object WHERE config = ? LIMIT 1", (config,)
+        ).fetchone()
+        return row is not None
 
     def is_known_object(self, object_ref: str, config: str) -> bool:
         """True if `object_ref` is listed in the configuration's object catalogue.
@@ -381,13 +423,18 @@ class Corpus:
         Draws from the full object catalogue (`config_object`), not only objects
         that already have a mapping row - an object that exists in the configuration
         but has no projection yet is a far more useful suggestion than nothing.
+        `fragment` is escaped before it reaches `LIKE` so a caller-supplied `%`
+        or `_` is matched literally instead of acting as a wildcard - without
+        this, a bare `"%"` fragment silently matched every object in the catalogue.
         """
+        escaped = _escape_like_fragment(fragment)
         rows = self._connection.execute(
             "SELECT ref FROM config_object"
             " WHERE config = ?"
-            "   AND (py_lower(ref) LIKE py_lower(?) OR py_lower(presentation) LIKE py_lower(?))"
+            "   AND (py_lower(ref) LIKE py_lower(?) ESCAPE '\\'"
+            "        OR py_lower(presentation) LIKE py_lower(?) ESCAPE '\\')"
             " ORDER BY ref LIMIT ?",
-            (config, f"%{fragment}%", f"%{fragment}%", limit),
+            (config, f"%{escaped}%", f"%{escaped}%", limit),
         ).fetchall()
         return [row["ref"] for row in rows]
 

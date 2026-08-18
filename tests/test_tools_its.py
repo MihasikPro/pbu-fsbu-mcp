@@ -1,12 +1,16 @@
+from datetime import date
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from etl.build_db import build
 from pbu_fsbu_mcp.db import Corpus
 from pbu_fsbu_mcp.disclaimers import UNVERIFIED_MAPPING_WARNING
 from pbu_fsbu_mcp.models import ItsLinkSource
 from pbu_fsbu_mcp.tools.its import get_its_references_payload
+
+SOURCES = Path(__file__).resolve().parents[1] / "data" / "sources" / "standards"
 
 
 @pytest.fixture
@@ -88,3 +92,20 @@ def test_clause_path_for_a_standard_not_yet_in_force_is_validated_against_its_fi
     payload = get_its_references_payload(corpus, "fsbu-9-2025", "1")
     assert payload["links"] == []
     assert payload["message"]
+
+
+def test_disclaimer_explains_summary_is_our_own_wording(corpus: Corpus) -> None:
+    payload = get_its_references_payload(corpus, "fsbu-6-2020", None)
+    assert "ИТС" in payload["disclaimer"]
+
+
+def test_payload_includes_staleness_warning_for_a_stale_corpus(tmp_path: Path) -> None:
+    """The other three tools (get_1c_mapping, list_standards, registry_document)
+    already surface a stale corpus via corpus.warnings() - get_its_references
+    was the one place that silently dropped it."""
+    output = tmp_path / "stale.db"
+    build(SOURCES, output, built_at=date(2000, 1, 1))
+    stale_corpus = Corpus(output)
+
+    payload = get_its_references_payload(stale_corpus, "fsbu-6-2020", None)
+    assert any("пересборка корпуса" in warning for warning in payload["warnings"])

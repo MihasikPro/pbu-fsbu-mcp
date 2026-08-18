@@ -1,12 +1,14 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from pbu_fsbu_mcp.loader import load_all, load_mappings
 from pbu_fsbu_mcp.objects import load_catalog
 
 ROOT = Path(__file__).resolve().parents[1] / "data" / "sources"
 MAPPINGS = ROOT / "mappings" / "bp30"
+ITS_LINKS = ROOT / "its" / "fsbu-6-2020.yaml"
 CATALOG = load_catalog(ROOT / "objects" / "bp30.yaml")
 STANDARDS = load_all(ROOT / "standards")
 
@@ -83,3 +85,21 @@ def test_zaklyuchenie_clause_path_is_rejected(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="заключение"):
         load_mappings(tmp_path, CATALOG, STANDARDS)
+
+
+def test_every_pilot_mapping_row_marks_verified_explicitly() -> None:
+    """`MappingSource.verified` defaults to `False` when the key is absent, which
+    made it easy to add a row that reads as human-checked in a code review
+    (sitting above a "ниже - черновики" comment) while actually relying on the
+    silent default - see CONTRIBUTING.md and README.md, both of which promise
+    every row is marked `verified: false`."""
+    for path in sorted(MAPPINGS.glob("*.yaml")):
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for index, entry in enumerate(raw["mappings"]):
+            assert "verified" in entry, f"{path}: mapping #{index} has no explicit 'verified' key"
+
+
+def test_every_pilot_its_link_marks_verified_explicitly() -> None:
+    raw = yaml.safe_load(ITS_LINKS.read_text(encoding="utf-8"))
+    for index, link in enumerate(raw["links"]):
+        assert "verified" in link, f"{ITS_LINKS}: link #{index} has no explicit 'verified' key"

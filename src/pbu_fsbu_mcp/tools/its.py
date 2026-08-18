@@ -13,7 +13,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from pbu_fsbu_mcp.db import ClauseNotFound, Corpus, CorpusError, NoEditionOnDate
-from pbu_fsbu_mcp.disclaimers import verification_warning
+from pbu_fsbu_mcp.disclaimers import ITS_SUMMARY_DISCLAIMER, verification_warning
 
 HINT = (
     "Полный текст статьи получите инструментом fetch_its сервера 1c-code-check-mcp, "
@@ -40,10 +40,11 @@ def get_its_references_payload(
     except CorpusError as exc:
         raise ValueError(str(exc)) from exc
 
-    warnings = verification_warning(bool(link["verified"]) for link in links)
+    warnings = [*corpus.warnings(), *verification_warning(bool(link["verified"]) for link in links)]
     return {
         "standard_id": standard_id,
         "hint": HINT,
+        "disclaimer": ITS_SUMMARY_DISCLAIMER,
         "warnings": warnings,
         "message": "" if links else NO_LINKS_MESSAGE,
         "links": links,

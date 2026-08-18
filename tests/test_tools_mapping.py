@@ -45,6 +45,17 @@ def test_unknown_standard_raises(corpus: Corpus) -> None:
         get_1c_mapping_payload(corpus, "fsbu-999-1999", None, "bp30")
 
 
+def test_unknown_config_says_so_instead_of_not_filled_in_yet(corpus: Corpus) -> None:
+    """A typo'd config (e.g. "erp") must not get the same "проекция пока не
+    заполнена" wording as a real config with no rows yet - that would silently
+    confirm a configuration the server has never heard of."""
+    payload = get_1c_mapping_payload(corpus, "fsbu-6-2020", None, "erp")
+    assert payload["mappings"] == []
+    assert "'erp'" in payload["message"]
+    assert "неизвестна" in payload["message"]
+    assert "bp30" in payload["message"]
+
+
 def test_mapping_text_is_separate_from_clause_text(corpus: Corpus) -> None:
     """Проекция не должна подмешиваться в нормативный текст."""
     payload = get_1c_mapping_payload(corpus, "fsbu-6-2020", "4", "bp30")

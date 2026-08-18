@@ -23,6 +23,14 @@ def test_result_carries_clause_path_and_title(corpus: Corpus) -> None:
     assert row["standard_title"]
 
 
+def test_result_carries_a_human_readable_presentation(corpus: Corpus) -> None:
+    """get_1c_mapping already resolves a presentation for every row (mappings_for);
+    the reverse lookup must not answer with a bare object_ref where the forward
+    lookup gives a catalogue name."""
+    row = find_by_1c_object_payload(corpus, "01.01", "bp30")["clauses"][0]
+    assert row["presentation"] == "Основные средства в организации"
+
+
 def test_disclaimer_is_present(corpus: Corpus) -> None:
     payload = find_by_1c_object_payload(corpus, "01.01", "bp30")
     assert "интерпретация" in payload["disclaimer"].lower()
@@ -68,6 +76,15 @@ def test_lookup_is_case_insensitive(corpus: Corpus) -> None:
     assert lower["outcome"] == upper["outcome"] == "mapped"
 
 
+def test_percent_sign_fragment_is_matched_literally_not_as_a_wildcard(corpus: Corpus) -> None:
+    """`suggest_objects` used an unescaped `LIKE '%<fragment>%'` - a bare "%"
+    fragment matched every row in the catalogue instead of the literal
+    character. No catalogue entry contains a literal "%", so this must come
+    back empty, not "everything"."""
+    payload = find_by_1c_object_payload(corpus, "%", "bp30")
+    assert payload["suggestions"] == []
+
+
 def test_suggestions_come_from_the_object_catalogue_not_only_mapped_objects(
     corpus: Corpus,
 ) -> None:
@@ -94,3 +111,13 @@ def test_unverified_row_triggers_the_unverified_warning(corpus: Corpus) -> None:
     payload = find_by_1c_object_payload(corpus, "01.01", "bp30")
     assert all(row["verified"] is False for row in payload["clauses"])
     assert UNVERIFIED_MAPPING_WARNING in payload["warnings"]
+
+
+def test_unknown_config_is_reported_as_such_not_as_an_unknown_object(corpus: Corpus) -> None:
+    """A typo'd config must not fall through to "object not found in catalogue" -
+    the object was never even looked up against a real catalogue."""
+    payload = find_by_1c_object_payload(corpus, "01.01", "erp")
+    assert payload["outcome"] == "unknown_config"
+    assert payload["clauses"] == []
+    assert payload["suggestions"] == []
+    assert "'erp'" in payload["message"]
