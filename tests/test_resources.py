@@ -37,6 +37,12 @@ def test_document_omits_staleness_warning_for_a_fresh_corpus(corpus: Corpus) -> 
     assert "пересборка корпуса" not in document
 
 
+def test_registry_marks_mapped_standards(corpus: Corpus) -> None:
+    document = registry_document(corpus, date(2026, 8, 14))
+    line = next(row for row in document.splitlines() if "fsbu-6-2020" in row)
+    assert line.rstrip().endswith("| да |")
+
+
 def test_document_includes_staleness_warning_for_a_stale_corpus(tmp_path: Path) -> None:
     """The registry resource is the artifact most likely to be cached in an LLM
     context for a whole session, so it must not be the one place with no warning."""
