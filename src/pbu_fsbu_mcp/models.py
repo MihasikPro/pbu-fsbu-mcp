@@ -17,6 +17,21 @@ class StandardStatus(str, Enum):
     REPEALED = "утратил силу"
 
 
+class MappingStatus(str, Enum):
+    """Whether a standard has a 1C projection, and how trustworthy it is.
+
+    Deliberately three states, not a bool: `NONE` and `DRAFT` both look like
+    "no usable mapping yet" to a caller that only checks truthiness, which is
+    exactly the confusion this type exists to prevent - `VERIFIED` is the only
+    state where at least one row has been checked by a human against the
+    clause text and the configuration (see `MappingSource.verified`).
+    """
+
+    NONE = "нет"
+    DRAFT = "черновик"
+    VERIFIED = "проверено"
+
+
 class Clause(BaseModel):
     edition_id: str
     standard_id: str
@@ -93,7 +108,7 @@ class StandardSummary(BaseModel):
     effective_to: date | None
     status: StandardStatus
     superseded_by: str | None
-    has_1c_mapping: bool
+    mapping_status: MappingStatus
     source_url: str
     successors: list[str] = Field(default_factory=list)
 

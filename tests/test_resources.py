@@ -37,10 +37,19 @@ def test_document_omits_staleness_warning_for_a_fresh_corpus(corpus: Corpus) -> 
     assert "пересборка корпуса" not in document
 
 
-def test_registry_marks_mapped_standards(corpus: Corpus) -> None:
+def test_registry_marks_draft_mapped_standards(corpus: Corpus) -> None:
+    """Every fsbu-6-2020 mapping row is `verified: false` by construction (a pilot
+    projection) - the registry must say so, not a bare 'да' that a reader could
+    mistake for a human-checked mapping."""
     document = registry_document(corpus, date(2026, 8, 14))
     line = next(row for row in document.splitlines() if "fsbu-6-2020" in row)
-    assert line.rstrip().endswith("| да |")
+    assert line.rstrip().endswith("| черновик |")
+
+
+def test_registry_marks_unmapped_standards(corpus: Corpus) -> None:
+    document = registry_document(corpus, date(2026, 8, 14))
+    line = next(row for row in document.splitlines() if "pbu-13-2000" in row)
+    assert line.rstrip().endswith("| нет |")
 
 
 def test_document_includes_staleness_warning_for_a_stale_corpus(tmp_path: Path) -> None:

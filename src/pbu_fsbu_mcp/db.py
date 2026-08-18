@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from pbu_fsbu_mcp.disclaimers import corpus_warnings
-from pbu_fsbu_mcp.models import ClauseResponse, MappingEntry, StandardSummary
+from pbu_fsbu_mcp.models import ClauseResponse, MappingEntry, MappingStatus, StandardSummary
 from pbu_fsbu_mcp.temporal import EditionRef, resolve_edition, status_on
 
 
@@ -128,8 +128,11 @@ class Corpus:
             params = (kind,)
         query += " ORDER BY year, number"
         rows = self._connection.execute(query, params).fetchall()
-        mapped_ids = self._mapped_standard_ids([row["id"] for row in rows], on_date)
-        return [self._summary(row, on_date, row["id"] in mapped_ids) for row in rows]
+        status_by_id = self._mapping_status_by_standard([row["id"] for row in rows], on_date)
+        return [
+            self._summary(row, on_date, status_by_id.get(row["id"], MappingStatus.NONE))
+            for row in rows
+        ]
 
     def get_standard(self, standard_id: str, on_date: date) -> StandardSummary:
         row = self._connection.execute(
@@ -137,8 +140,8 @@ class Corpus:
         ).fetchone()
         if row is None:
             raise StandardNotFound(standard_id)
-        mapped_ids = self._mapped_standard_ids([standard_id], on_date)
-        return self._summary(row, on_date, standard_id in mapped_ids)
+        status_by_id = self._mapping_status_by_standard([standard_id], on_date)
+        return self._summary(row, on_date, status_by_id.get(standard_id, MappingStatus.NONE))
 
     def outline(self, standard_id: str, on_date: date) -> list[tuple[str, str | None]]:
         edition = self._edition(standard_id, on_date)
@@ -364,8 +367,11 @@ class Corpus:
             raise NoEditionOnDate(standard_id, on_date)
         return edition
 
-    def _mapped_standard_ids(self, standard_ids: list[str], on_date: date) -> set[str]:
-        """Standards with a `mapping` row applicable to their edition in force on `on_date`.
+    def _mapping_status_by_standard(
+        self, standard_ids: list[str], on_date: date
+    ) -> dict[str, MappingStatus]:
+        """`MappingStatus` for each of `standard_ids` that has an applicable `mapping`
+        row as of `on_date`; a standard absent from the result has none (`NONE`).
 
         One query for however many standards are being summarised - `list_standards`
         used to run this per row, turning a page of standards into a page of queries.
@@ -373,24 +379,39 @@ class Corpus:
         no longer exceeds the edition number in force on `on_date`; a standard with no
         edition yet in force on that date contributes no rows and is simply absent
         from the result.
+
+        `MIN(mapping.verified)` folds a standard's applicable rows to `0` (SQLite's
+        integer for `verified = 0`) the moment any one of them is unverified, and to
+        `1` only when every applicable row is verified - `DRAFT` vs. `VERIFIED`,
+        decided by SQLite instead of pulling every row into Python to check.
         """
         if not standard_ids:
-            return set()
+            return {}
         placeholders = ",".join("?" for _ in standard_ids)
         rows = self._connection.execute(
-            "SELECT DISTINCT mapping.standard_id FROM mapping"
+            "SELECT mapping.standard_id AS standard_id,"
+            "       MIN(mapping.verified) AS all_verified"
+            " FROM mapping"
             " JOIN edition ON edition.standard_id = mapping.standard_id"
             " WHERE mapping.standard_id IN (" + placeholders + ")"
             " AND edition.effective_from = ("
             "     SELECT MAX(other.effective_from) FROM edition AS other"
             "     WHERE other.standard_id = mapping.standard_id AND other.effective_from <= ?"
             " )"
-            " AND (mapping.edition_from IS NULL OR mapping.edition_from <= edition.edition_no)",
+            " AND (mapping.edition_from IS NULL OR mapping.edition_from <= edition.edition_no)"
+            " GROUP BY mapping.standard_id",
             (*standard_ids, on_date.isoformat()),
         ).fetchall()
-        return {row["standard_id"] for row in rows}
+        return {
+            row["standard_id"]: (
+                MappingStatus.VERIFIED if row["all_verified"] else MappingStatus.DRAFT
+            )
+            for row in rows
+        }
 
-    def _summary(self, row: sqlite3.Row, on_date: date, has_mapping: bool) -> StandardSummary:
+    def _summary(
+        self, row: sqlite3.Row, on_date: date, mapping_status: MappingStatus
+    ) -> StandardSummary:
         return StandardSummary(
             id=row["id"],
             kind=row["kind"],
@@ -406,7 +427,7 @@ class Corpus:
                 on_date,
             ),
             superseded_by=row["superseded_by"],
-            has_1c_mapping=has_mapping,
+            mapping_status=mapping_status,
             source_url=row["source_url"],
             successors=self.successors(row["id"]),
         )

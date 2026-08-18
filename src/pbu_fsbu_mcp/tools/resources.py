@@ -25,11 +25,11 @@ def registry_document(corpus: Corpus, on_date: date) -> str:
         lines.append("")
     lines.append(_HEADER)
     for item in corpus.list_standards(on_date):
-        mapping_flag = "да" if item.has_1c_mapping else "нет"
         lines.append(
             f"| {item.id} | {item.kind} | {item.number} | {item.title} "
             f"| от {item.order_date.strftime('%d.%m.%Y')} № {item.order_no} "
-            f"| {item.effective_from.strftime('%d.%m.%Y')} | {item.status.value} | {mapping_flag} |"
+            f"| {item.effective_from.strftime('%d.%m.%Y')} | {item.status.value} "
+            f"| {item.mapping_status.value} |"
         )
     return "\n".join(lines)
 
