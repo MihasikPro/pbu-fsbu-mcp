@@ -76,6 +76,17 @@ def test_fsbu_27_2021_reproduces_byte_for_byte_from_the_reviewed_ocr_transcript(
     assert body == _committed_source(_STANDALONE_PDF_ID)
 
 
+def test_fsbu_27_2021_clause_5_has_no_stray_preposition_before_abzatsem() -> None:
+    """OCR transcript regression: an unreviewed transcription introduced a stray
+    "в" ("...пункта и В абзацем первым пункта 6...") that is not grammatical
+    Russian and does not appear anywhere else the same exact phrase
+    ("абзацем первым пункта 6") occurs later in the same clause. CONTRIBUTING.md
+    promises OCR text never enters the corpus without line-by-line proofing
+    against the scan - this line had not actually been proofed."""
+    assert "и в абзацем" not in _FSBU_27_2021_OCR_FIXTURE.read_text(encoding="utf-8")
+    assert "и в абзацем" not in _committed_source(_STANDALONE_PDF_ID)
+
+
 def test_every_committed_standard_has_a_reproducibility_check() -> None:
     """Guards against a 30th standard landing in the corpus with no snapshot."""
     committed_ids = {path.stem for path in _SOURCES_DIR.glob("*.yaml")}

@@ -4,7 +4,15 @@ import pytest
 
 from pbu_fsbu_mcp.server import build_server
 
-EXPECTED_TOOLS = {"list_standards", "get_standard", "get_clause", "search_clauses"}
+EXPECTED_TOOLS = {
+    "list_standards",
+    "get_standard",
+    "get_clause",
+    "search_clauses",
+    "get_1c_mapping",
+    "find_by_1c_object",
+    "get_its_references",
+}
 
 
 @pytest.mark.anyio
@@ -34,4 +42,11 @@ async def test_get_clause_round_trip(corpus_db: Path) -> None:
     result = await server.call_tool(
         "get_clause", {"standard_id": "fsbu-6-2020", "path": "1", "on_date": "2026-08-14"}
     )
+    assert result is not None
+
+
+@pytest.mark.anyio
+async def test_find_by_1c_object_round_trip(corpus_db: Path) -> None:
+    server = build_server(corpus_db)
+    result = await server.call_tool("find_by_1c_object", {"object_ref": "01.01"})
     assert result is not None

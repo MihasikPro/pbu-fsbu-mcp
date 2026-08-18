@@ -35,28 +35,99 @@ _CHECKS: tuple[tuple[str, str], ...] = (
         ),
     ),
     (
+        # Defense in depth alongside `UNIQUE (standard_id, effective_from)` in
+        # `schema.sql`: that constraint stops a *fresh* build from ever producing
+        # this state, but a `.db` file built before the constraint existed (or
+        # hand-edited outside `etl.build_db`) can still carry it, and "which
+        # edition is in force on this date" is ambiguous whenever it does.
+        (
+            "edition: у стандарта несколько редакций с одинаковой effective_from"
+            " (какая из них 'действующая на дату' - неоднозначно)"
+        ),
+        (
+            "SELECT standard_id FROM edition"
+            " GROUP BY standard_id, effective_from"
+            " HAVING COUNT(*) > 1"
+        ),
+    ),
+    (
         "mapping: маппинг ссылается на несуществующий пункт",
         (
-            "SELECT mapping.id FROM mapping"
-            " LEFT JOIN clause ON clause.id = mapping.clause_id"
+            "SELECT DISTINCT mapping.id FROM mapping"
+            " LEFT JOIN clause"
+            "   ON clause.standard_id = mapping.standard_id AND clause.path = mapping.clause_path"
             " WHERE clause.id IS NULL"
         ),
+    ),
+    (
+        "mapping: edition_from ссылается на несуществующую редакцию стандарта",
+        (
+            "SELECT mapping.id FROM mapping"
+            " LEFT JOIN edition"
+            "   ON edition.standard_id = mapping.standard_id"
+            "  AND edition.edition_no = mapping.edition_from"
+            " WHERE mapping.edition_from IS NOT NULL AND edition.id IS NULL"
+        ),
+    ),
+    (
+        "mapping: путь .заключение недопустим в проекции (нестабильный артефакт разбора)",
+        "SELECT id FROM mapping WHERE clause_path LIKE '%.заключение'",
     ),
     (
         "its_link: ссылка ИТС указывает на несуществующий пункт",
         (
-            "SELECT its_link.id FROM its_link"
-            " LEFT JOIN clause ON clause.id = its_link.clause_id"
+            "SELECT DISTINCT its_link.id FROM its_link"
+            " LEFT JOIN clause"
+            "   ON clause.standard_id = its_link.standard_id AND clause.path = its_link.clause_path"
             " WHERE clause.id IS NULL"
         ),
     ),
     (
+        "its_link: edition_from ссылается на несуществующую редакцию стандарта",
+        (
+            "SELECT its_link.id FROM its_link"
+            " LEFT JOIN edition"
+            "   ON edition.standard_id = its_link.standard_id"
+            "  AND edition.edition_no = its_link.edition_from"
+            " WHERE its_link.edition_from IS NOT NULL AND edition.id IS NULL"
+        ),
+    ),
+    (
+        "its_link: путь .заключение недопустим в проекции (нестабильный артефакт разбора)",
+        "SELECT id FROM its_link WHERE clause_path LIKE '%.заключение'",
+    ),
+    (
         "crosslink: связь указывает на несуществующий пункт",
         (
-            "SELECT crosslink.id FROM crosslink"
-            " LEFT JOIN clause AS src ON src.id = crosslink.from_clause"
-            " LEFT JOIN clause AS dst ON dst.id = crosslink.to_clause"
+            "SELECT DISTINCT crosslink.id FROM crosslink"
+            " LEFT JOIN clause AS src"
+            "   ON src.standard_id = crosslink.from_standard"
+            "  AND src.path = crosslink.from_clause_path"
+            " LEFT JOIN clause AS dst"
+            "   ON dst.standard_id = crosslink.to_standard"
+            "  AND dst.path = crosslink.to_clause_path"
             " WHERE src.id IS NULL OR dst.id IS NULL"
+        ),
+    ),
+    (
+        "crosslink: edition_from ссылается на несуществующую редакцию стандарта",
+        (
+            "SELECT DISTINCT crosslink.id FROM crosslink"
+            " LEFT JOIN edition AS from_ed"
+            "   ON from_ed.standard_id = crosslink.from_standard"
+            "  AND from_ed.edition_no = crosslink.from_edition_from"
+            " LEFT JOIN edition AS to_ed"
+            "   ON to_ed.standard_id = crosslink.to_standard"
+            "  AND to_ed.edition_no = crosslink.to_edition_from"
+            " WHERE (crosslink.from_edition_from IS NOT NULL AND from_ed.id IS NULL)"
+            "    OR (crosslink.to_edition_from IS NOT NULL AND to_ed.id IS NULL)"
+        ),
+    ),
+    (
+        "crosslink: путь .заключение недопустим в проекции (нестабильный артефакт разбора)",
+        (
+            "SELECT id FROM crosslink"
+            " WHERE from_clause_path LIKE '%.заключение' OR to_clause_path LIKE '%.заключение'"
         ),
     ),
     (

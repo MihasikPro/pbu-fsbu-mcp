@@ -54,6 +54,14 @@ def build_server(db_path: Path, host: str = "0.0.0.0", port: int = 18010) -> Fas
         from pbu_fsbu_mcp.tools import resources
 
         resources.register(server, corpus)
+
+        from pbu_fsbu_mcp.tools import mapping as mapping_tool
+
+        mapping_tool.register(server, corpus)
+
+        from pbu_fsbu_mcp.tools import its as its_tool
+
+        its_tool.register(server, corpus)
     return server
 
 
@@ -73,14 +81,17 @@ def _open_populated_corpus(db_path: Path) -> Corpus | None:
 
 
 def _register_health_route(server: FastMCP, db_path: Path, corpus: Corpus | None) -> None:
+    # No `db` field in the response: /healthz has no authentication, and the
+    # absolute filesystem path of the corpus is server-internal information
+    # an unauthenticated caller has no business learning.
     @server.custom_route("/healthz", methods=["GET"])  # type: ignore[untyped-decorator]  # FastMCP.custom_route is untyped in mcp==1.29.0
     async def healthz(_request: Request) -> JSONResponse:
         if corpus is None:
             return JSONResponse(
-                {"status": "unavailable", "db": str(db_path), "reason": "corpus not built"},
+                {"status": "unavailable", "reason": "corpus not built"},
                 status_code=503,
             )
-        return JSONResponse({"status": "ok", "db": str(db_path)})
+        return JSONResponse({"status": "ok"})
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

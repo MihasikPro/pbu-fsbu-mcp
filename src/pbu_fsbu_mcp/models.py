@@ -17,6 +17,21 @@ class StandardStatus(str, Enum):
     REPEALED = "утратил силу"
 
 
+class MappingStatus(str, Enum):
+    """Whether a standard has a 1C projection, and how trustworthy it is.
+
+    Deliberately three states, not a bool: `NONE` and `DRAFT` both look like
+    "no usable mapping yet" to a caller that only checks truthiness, which is
+    exactly the confusion this type exists to prevent - `VERIFIED` is the only
+    state where at least one row has been checked by a human against the
+    clause text and the configuration (see `MappingSource.verified`).
+    """
+
+    NONE = "нет"
+    DRAFT = "черновик"
+    VERIFIED = "проверено"
+
+
 class Clause(BaseModel):
     edition_id: str
     standard_id: str
@@ -93,7 +108,7 @@ class StandardSummary(BaseModel):
     effective_to: date | None
     status: StandardStatus
     superseded_by: str | None
-    has_1c_mapping: bool
+    mapping_status: MappingStatus
     source_url: str
     successors: list[str] = Field(default_factory=list)
 
@@ -104,6 +119,52 @@ class CrosslinkSource(BaseModel):
     from_standard: str
     to_standard: str
     kind: Literal["заменён", "аналог", "отсылка"]
+
+
+class MappingSource(BaseModel):
+    """One projection row as authored in a `data/sources/mappings/<config>/*.yaml` file.
+
+    Keyed on `clause_path`, not a `clause.id` - see `schema.sql` on the `mapping`
+    table for why. `edition_from` is the earliest edition (by `edition_no`) this
+    row applies to; `None` means "since the standard's first edition".
+
+    `verified` defaults to `False` and stays that way until a human reviewer
+    edits the YAML by hand. Tooling that authors mapping rows (including AI
+    drafting) must never set it to `True` - see `disclaimers.UNVERIFIED_MAPPING_WARNING`.
+    """
+
+    clause_path: str
+    kind: str
+    object_ref: str
+    note: str | None = None
+    confidence: int = Field(ge=0, le=100)
+    edition_from: int | None = None
+    verified: bool = False
+
+
+class MappingFile(BaseModel):
+    """One `data/sources/mappings/<config>/*.yaml` file."""
+
+    standard_id: str
+    config: str
+    version_from: str | None = None
+    mappings: list[MappingSource] = Field(default_factory=list)
+
+
+class MappingEntry(BaseModel):
+    """One projection row returned by `get_1c_mapping`.
+
+    This is an interpretation of a clause, not the clause itself - it never
+    carries clause text, on purpose. See `disclaimers.MAPPING_DISCLAIMER`.
+    """
+
+    clause_path: str
+    kind: str
+    object_ref: str
+    presentation: str
+    note: str | None
+    confidence: int = Field(ge=0, le=100)
+    verified: bool
 
 
 class ClauseResponse(BaseModel):
@@ -123,6 +184,32 @@ class ClauseResponse(BaseModel):
     source_url: str
     children: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class ItsLinkSource(BaseModel):
+    """One ИТС reference row as authored in a `data/sources/its/*.yaml` file.
+
+    Only an identifier, a title, and a short summary in our own words are
+    stored - never the article's own text, which is licensed 1C content.
+    `summary` is capped at 400 characters as a technical guard against
+    copy-pasting the source article, not a style preference.
+
+    `verified` defaults to `False`, same rule and same reason as on
+    `MappingSource.verified` - a human reviewer sets it, tooling never does.
+    """
+
+    clause_path: str
+    its_id: str
+    title: str
+    summary: str = Field(max_length=400)
+    verified: bool = False
+
+
+class ItsLinkFile(BaseModel):
+    """One `data/sources/its/*.yaml` file."""
+
+    standard_id: str
+    links: list[ItsLinkSource] = Field(default_factory=list)
 
 
 class SearchHit(BaseModel):

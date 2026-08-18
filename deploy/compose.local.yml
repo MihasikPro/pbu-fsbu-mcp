@@ -1,0 +1,28 @@
+# Локальный запуск на рабочей станции, до выкладки на сервер.
+#
+# Собирает образ из исходников репозитория (не тянет опубликованный образ)
+# и публикует порт только на loopback - контейнер недоступен из локальной
+# сети, только с этой же машины.
+#
+# Запуск из корня репозитория:
+#   docker compose -f deploy/compose.local.yml up --build
+#
+# Проверка:
+#   curl http://127.0.0.1:18010/healthz
+services:
+  pbu-fsbu-mcp:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: pbu-fsbu-mcp-local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18010:18010"
+    read_only: true
+    # Untested against a real build (no Docker in the environment this was
+    # written in) - a read-only root has never actually been exercised end to
+    # end. /tmp is the one write target common enough (pymorphy3 dictionary
+    # loading, uvicorn/asyncio startup) to mount proactively rather than
+    # discover missing on first run.
+    tmpfs:
+      - /tmp

@@ -14,14 +14,54 @@ def test_dangling_mapping_is_reported(corpus_db: Path, tmp_path: Path) -> None:
     connection = sqlite3.connect(copy)
     connection.execute("PRAGMA foreign_keys = OFF")
     connection.execute(
-        "INSERT INTO mapping (clause_id, config, version_from, kind, object_ref, note, confidence)"
-        " VALUES ('fsbu-6-2020@1#999', 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
+        "INSERT INTO mapping"
+        " (standard_id, clause_path, edition_from, config, version_from, kind, object_ref,"
+        " note, confidence)"
+        " VALUES ('fsbu-6-2020', '999', NULL, 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
     )
     connection.commit()
     connection.close()
 
     violations = check(copy)
     assert any("mapping" in violation for violation in violations)
+
+
+def test_mapping_with_unknown_edition_from_is_reported(corpus_db: Path, tmp_path: Path) -> None:
+    """`edition_from` must name an edition that actually exists for the standard."""
+    copy = tmp_path / "bad_edition_from.db"
+    copy.write_bytes(corpus_db.read_bytes())
+    connection = sqlite3.connect(copy)
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute(
+        "INSERT INTO mapping"
+        " (standard_id, clause_path, edition_from, config, version_from, kind, object_ref,"
+        " note, confidence)"
+        " VALUES ('fsbu-6-2020', '1', 99, 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
+    )
+    connection.commit()
+    connection.close()
+
+    violations = check(copy)
+    assert any("edition_from" in violation for violation in violations)
+
+
+def test_mapping_onto_a_zakluchenie_path_is_reported(corpus_db: Path, tmp_path: Path) -> None:
+    """`.заключение` paths are ETL artefacts, not addressable projection targets."""
+    copy = tmp_path / "mapping_zakluchenie.db"
+    copy.write_bytes(corpus_db.read_bytes())
+    connection = sqlite3.connect(copy)
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute(
+        "INSERT INTO mapping"
+        " (standard_id, clause_path, edition_from, config, version_from, kind, object_ref,"
+        " note, confidence)"
+        " VALUES ('fsbu-6-2020', '13.заключение', NULL, 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
+    )
+    connection.commit()
+    connection.close()
+
+    violations = check(copy)
+    assert any("заключение" in violation for violation in violations)
 
 
 def test_clause_without_edition_is_reported(corpus_db: Path, tmp_path: Path) -> None:
@@ -82,6 +122,52 @@ def test_dangling_parent_path_is_reported(corpus_db: Path, tmp_path: Path) -> No
 
     violations = check(copy)
     assert any("parent_path" in violation for violation in violations)
+
+
+def test_duplicate_effective_from_across_editions_is_reported(tmp_path: Path) -> None:
+    """Defense in depth alongside `UNIQUE (standard_id, effective_from)` in
+    schema.sql: a corpus built under an older schema, before that constraint
+    existed, could still carry two editions of one standard tied on
+    `effective_from` - `check()` must flag it even though a *fresh* build can
+    no longer produce that state (see `test_db.py` for the constraint itself).
+    """
+    schema = (
+        Path(__file__).resolve().parents[1] / "src" / "pbu_fsbu_mcp" / "schema.sql"
+    ).read_text(encoding="utf-8")
+    pre_fix_schema = schema.replace(",\n    UNIQUE (standard_id, effective_from)\n)", "\n)")
+    assert "UNIQUE (standard_id, effective_from)\n" not in pre_fix_schema
+
+    db_path = tmp_path / "tied_editions.db"
+    connection = sqlite3.connect(db_path)
+    connection.executescript(pre_fix_schema)
+    connection.execute(
+        "INSERT INTO standard (id, kind, number, year, title, order_date, order_no,"
+        " effective_from, source_url)"
+        " VALUES ('test-std', 'ФСБУ', '1/2020', 2020, 'Тест', '2020-01-01', '1н',"
+        " '2020-01-01', 'https://example.org')"
+    )
+    connection.execute(
+        "INSERT INTO edition (id, standard_id, edition_no, effective_from)"
+        " VALUES ('test-std@1', 'test-std', 1, '2020-01-01')"
+    )
+    connection.execute(
+        "INSERT INTO edition (id, standard_id, edition_no, effective_from)"
+        " VALUES ('test-std@2', 'test-std', 2, '2020-01-01')"
+    )
+    connection.execute(
+        "INSERT INTO clause (id, standard_id, edition_id, path, text)"
+        " VALUES ('test-std@1#1', 'test-std', 'test-std@1', '1', 'Текст пункта.')"
+    )
+    connection.execute("INSERT INTO clause_fts (clause_id, lemmas) VALUES ('test-std@1#1', 'текст пункт')")
+    connection.execute(
+        "INSERT INTO corpus_meta (built_at, registry_hash, source_snapshot_date)"
+        " VALUES ('2026-01-01', 'x', '2026-01-01')"
+    )
+    connection.commit()
+    connection.close()
+
+    violations = check(db_path)
+    assert any("одинаковой effective_from" in violation for violation in violations)
 
 
 def test_empty_but_valid_corpus_is_rejected(tmp_path: Path) -> None:

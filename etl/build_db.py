@@ -10,8 +10,9 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from pbu_fsbu_mcp.loader import load_all, load_crosslinks
+from pbu_fsbu_mcp.loader import load_all, load_crosslinks, load_its_links, load_mappings
 from pbu_fsbu_mcp.models import Standard
+from pbu_fsbu_mcp.objects import load_catalog
 from pbu_fsbu_mcp.search.morphology import lemmatize
 
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "src" / "pbu_fsbu_mcp" / "schema.sql"
@@ -54,6 +55,9 @@ def build(sources_dir: Path, output: Path, built_at: date) -> None:
                     " VALUES (?, ?, ?)",
                     (link.from_standard, link.to_standard, link.kind),
                 )
+
+            _insert_mappings(connection, sources_dir.parent, standards)
+            _insert_its_links(connection, sources_dir.parent, standards)
 
             _insert_meta(connection, standards, built_at)
             connection.commit()
@@ -115,6 +119,78 @@ def _insert_standard(connection: sqlite3.Connection, standard: Standard) -> None
             connection.execute(
                 "INSERT INTO clause_fts (clause_id, lemmas) VALUES (?, ?)",
                 (clause.id, indexed),
+            )
+
+
+def _insert_mappings(
+    connection: sqlite3.Connection, sources_dir: Path, standards: list[Standard]
+) -> None:
+    """Load and insert projection rows for every `<config>` under `mappings/`.
+
+    Silently does nothing when a configuration has no catalogue or no mapping
+    files yet - mappings are hand-authored per config and are not expected to
+    exist for every config from day one.
+    """
+    objects_dir = sources_dir / "objects"
+    mappings_root = sources_dir / "mappings"
+    if not mappings_root.exists():
+        return
+
+    for config_dir in sorted(p for p in mappings_root.iterdir() if p.is_dir()):
+        catalog_path = objects_dir / f"{config_dir.name}.yaml"
+        if not catalog_path.exists():
+            continue
+        catalog = load_catalog(catalog_path)
+        for config_object in catalog.values():
+            connection.execute(
+                "INSERT INTO config_object (config, ref, kind, presentation) VALUES (?, ?, ?, ?)",
+                (config_dir.name, config_object.ref, config_object.kind, config_object.presentation),
+            )
+        for mapping_file in load_mappings(config_dir, catalog, standards):
+            for entry in mapping_file.mappings:
+                connection.execute(
+                    "INSERT INTO mapping (standard_id, clause_path, edition_from,"
+                    " config, version_from, kind, object_ref, note, confidence, verified)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        mapping_file.standard_id,
+                        entry.clause_path,
+                        entry.edition_from,
+                        mapping_file.config,
+                        mapping_file.version_from,
+                        entry.kind,
+                        entry.object_ref,
+                        entry.note,
+                        entry.confidence,
+                        entry.verified,
+                    ),
+                )
+
+
+def _insert_its_links(
+    connection: sqlite3.Connection, sources_dir: Path, standards: list[Standard]
+) -> None:
+    """Load and insert ИТС reference rows for every `data/sources/its/*.yaml` file.
+
+    Missing directory means no ИТС references have been authored yet - silently
+    does nothing, same as `_insert_mappings` does for a missing `mappings/` root.
+    """
+    its_dir = sources_dir / "its"
+    for its_file in load_its_links(its_dir, standards):
+        for link in its_file.links:
+            connection.execute(
+                "INSERT INTO its_link (standard_id, clause_path, edition_from,"
+                " its_id, title, summary, verified)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    its_file.standard_id,
+                    link.clause_path,
+                    None,
+                    link.its_id,
+                    link.title,
+                    link.summary,
+                    link.verified,
+                ),
             )
 
 

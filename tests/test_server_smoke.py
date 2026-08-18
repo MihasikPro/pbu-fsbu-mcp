@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -54,3 +55,26 @@ async def test_healthz_reports_ok_for_a_populated_corpus(corpus_db: Path) -> Non
     route = server._custom_starlette_routes[0]
     response = await route.endpoint(None)
     assert response.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_healthz_does_not_leak_the_database_path(corpus_db: Path) -> None:
+    """/healthz has no authentication - the absolute filesystem path of the
+    corpus must not be observable by an unauthenticated caller, populated
+    corpus or not."""
+    server = build_server(corpus_db)
+    route = server._custom_starlette_routes[0]
+    response = await route.endpoint(None)
+    assert "db" not in json.loads(response.body)
+
+
+@pytest.mark.anyio
+async def test_healthz_does_not_leak_the_database_path_when_unavailable(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "empty.db"
+    db_path.touch()
+    server = build_server(db_path)
+    route = server._custom_starlette_routes[0]
+    response = await route.endpoint(None)
+    assert "db" not in json.loads(response.body)
