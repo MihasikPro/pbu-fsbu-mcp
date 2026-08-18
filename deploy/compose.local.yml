@@ -19,3 +19,10 @@ services:
     ports:
       - "127.0.0.1:18010:18010"
     read_only: true
+    # Untested against a real build (no Docker in the environment this was
+    # written in) - a read-only root has never actually been exercised end to
+    # end. /tmp is the one write target common enough (pymorphy3 dictionary
+    # loading, uvicorn/asyncio startup) to mount proactively rather than
+    # discover missing on first run.
+    tmpfs:
+      - /tmp
