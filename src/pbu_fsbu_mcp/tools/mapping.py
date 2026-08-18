@@ -39,6 +39,54 @@ def get_1c_mapping_payload(
     }
 
 
+def find_by_1c_object_payload(corpus: Corpus, object_ref: str, config: str) -> dict[str, Any]:
+    """Build the `find_by_1c_object` response: reverse lookup for `object_ref`.
+
+    `outcome` makes the three possible cases explicit for the caller instead of
+    forcing it to infer them from an empty list:
+    - "mapped" - at least one clause is projected onto this object;
+    - "known_no_mapping" - the object exists in the configuration's catalogue,
+      but no clause is projected onto it yet (absence of a projection is not
+      evidence the standard is unimplemented - see `NO_MAPPING_MESSAGE`-style wording);
+    - "unknown" - the object is not in the catalogue at all, most likely a typo;
+      `suggestions` then offers near matches drawn from the whole catalogue.
+    """
+    clauses = corpus.clauses_by_object(object_ref, config)
+    known = bool(clauses) or corpus.is_known_object(object_ref, config)
+
+    suggestions: list[str] = []
+    if clauses:
+        outcome = "mapped"
+        message = ""
+    elif known:
+        outcome = "known_no_mapping"
+        message = (
+            "Объект известен в конфигурации, но ни один пункт стандартов ему пока "
+            "не сопоставлен. Это может означать, что проекция для соответствующего "
+            "стандарта пока не заполнена."
+        )
+    else:
+        outcome = "unknown"
+        suggestions = corpus.suggest_objects(object_ref, config)
+        message = (
+            "Такой объект не найден в каталоге конфигурации. Возможно, вы имели в виду "
+            "один из объектов ниже."
+            if suggestions
+            else "Такой объект не найден в каталоге конфигурации."
+        )
+
+    return {
+        "object_ref": object_ref,
+        "config": config,
+        "outcome": outcome,
+        "disclaimer": MAPPING_DISCLAIMER,
+        "warnings": corpus.warnings(),
+        "message": message,
+        "suggestions": suggestions,
+        "clauses": clauses,
+    }
+
+
 def register(server: FastMCP, corpus: Corpus) -> None:
     @server.tool(
         description=(
@@ -54,3 +102,13 @@ def register(server: FastMCP, corpus: Corpus) -> None:
         config: str = DEFAULT_CONFIG,
     ) -> dict[str, Any]:
         return get_1c_mapping_payload(corpus, standard_id, clause_path, config)
+
+    @server.tool(
+        description=(
+            "Обратный поиск: какие пункты каких стандартов стоят за объектом конфигурации 1С. "
+            "Принимает счет (01.01), регистр, документ или настройку учетной политики. "
+            "Если объект не найден, возвращает похожие объекты каталога конфигурации."
+        )
+    )
+    def find_by_1c_object(object_ref: str, config: str = DEFAULT_CONFIG) -> dict[str, Any]:
+        return find_by_1c_object_payload(corpus, object_ref, config)

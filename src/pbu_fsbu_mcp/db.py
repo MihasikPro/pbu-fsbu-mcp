@@ -50,6 +50,11 @@ def _as_date(value: str | None) -> date | None:
     return date.fromisoformat(value) if value else None
 
 
+def _py_lower(value: str | None) -> str | None:
+    """Unicode-aware lowercasing exposed to SQLite as `py_lower()` - see `Corpus.__init__`."""
+    return value.lower() if value is not None else None
+
+
 def _assert_thread_safe() -> None:
     """Fail loudly if this build cannot share one connection between threads."""
     if sqlite3.threadsafety < 3:
@@ -88,6 +93,10 @@ class Corpus:
             read_only_uri(db_path), uri=True, check_same_thread=False
         )
         self._connection.row_factory = sqlite3.Row
+        # SQLite's built-in LOWER() only folds ASCII; a 1C object ref is typically
+        # Cyrillic (`РегистрСведений...`), so a case-insensitive lookup needs Python's
+        # Unicode-aware str.lower() registered as a SQL function instead.
+        self._connection.create_function("py_lower", 1, _py_lower, deterministic=True)
 
     def built_at(self) -> date:
         row = self._connection.execute("SELECT built_at FROM corpus_meta").fetchone()
@@ -239,6 +248,66 @@ class Corpus:
             )
             for row in rows
         ]
+
+    def clauses_by_object(self, object_ref: str, config: str) -> list[dict[str, str | int]]:
+        """Reverse lookup: which clauses of which standards are implemented by this object.
+
+        Keyed on `standard_id` + `clause_path` like `mappings_for`, not on a
+        `clause.id` join - the `mapping` table stores `clause_path` directly (see
+        `schema.sql`). Resolved as of `built_at()` for the same reason `mappings_for`
+        does it: a projection reflects the edition the corpus considers current,
+        not whichever edition happens to be in force on the caller's clock.
+        Lookup is case-insensitive - `object_ref` is normally typed by hand while
+        looking at a live configuration, casing of 1C names is not reliable.
+        """
+        rows = self._connection.execute(
+            "SELECT mapping.standard_id AS standard_id,"
+            "       standard.title AS standard_title,"
+            "       mapping.clause_path AS clause_path,"
+            "       mapping.kind AS kind,"
+            "       mapping.note AS note,"
+            "       mapping.confidence AS confidence"
+            " FROM mapping"
+            " JOIN standard ON standard.id = mapping.standard_id"
+            " JOIN edition ON edition.standard_id = mapping.standard_id"
+            " WHERE mapping.config = ? AND py_lower(mapping.object_ref) = py_lower(?)"
+            "   AND edition.effective_from = ("
+            "       SELECT MAX(other.effective_from) FROM edition AS other"
+            "       WHERE other.standard_id = mapping.standard_id AND other.effective_from <= ?"
+            "   )"
+            "   AND (mapping.edition_from IS NULL OR mapping.edition_from <= edition.edition_no)"
+            " ORDER BY mapping.confidence DESC, mapping.standard_id, mapping.clause_path",
+            (config, object_ref, self.built_at().isoformat()),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def is_known_object(self, object_ref: str, config: str) -> bool:
+        """True if `object_ref` is listed in the configuration's object catalogue.
+
+        Distinguishes "known object, no projection yet" from "no such object" -
+        both look identical if you only look at `clauses_by_object` being empty.
+        """
+        row = self._connection.execute(
+            "SELECT 1 FROM config_object WHERE config = ? AND py_lower(ref) = py_lower(?)",
+            (config, object_ref),
+        ).fetchone()
+        return row is not None
+
+    def suggest_objects(self, fragment: str, config: str, limit: int = 10) -> list[str]:
+        """Object refs from the catalogue whose ref or presentation contains `fragment`.
+
+        Draws from the full object catalogue (`config_object`), not only objects
+        that already have a mapping row - an object that exists in the configuration
+        but has no projection yet is a far more useful suggestion than nothing.
+        """
+        rows = self._connection.execute(
+            "SELECT ref FROM config_object"
+            " WHERE config = ?"
+            "   AND (py_lower(ref) LIKE py_lower(?) OR py_lower(presentation) LIKE py_lower(?))"
+            " ORDER BY ref LIMIT ?",
+            (config, f"%{fragment}%", f"%{fragment}%", limit),
+        ).fetchall()
+        return [row["ref"] for row in rows]
 
     def _presentation(self, object_ref: str, config: str) -> str:
         row = self._connection.execute(
