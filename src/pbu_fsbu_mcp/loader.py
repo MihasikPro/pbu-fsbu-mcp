@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from pbu_fsbu_mcp.models import Standard
+from pbu_fsbu_mcp.models import CrosslinkSource, Standard
 
 
 def load_standard(path: Path) -> Standard:
@@ -67,3 +67,11 @@ def load_all(directory: Path) -> list[Standard]:
         source_by_id[standard.id] = source_path
         standards.append(standard)
     return standards
+
+
+def load_crosslinks(path: Path) -> list[CrosslinkSource]:
+    """Load standard-to-standard relations; missing file means no relations."""
+    if not path.exists():
+        return []
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or []
+    return [CrosslinkSource.model_validate(item) for item in raw]

@@ -22,6 +22,15 @@ pbu-fsbu-mcp = "pbu_fsbu_mcp.server:cli"
 # ruff is pinned to a minor range on purpose: its default rule set changes between
 # minor versions, so an unbounded range silently changes what CI enforces.
 dev = ["pytest>=8.0", "ruff>=0.16,<0.17", "mypy>=1.11", "types-PyYAML"]
+etl = [
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "pypdf>=4.0",
+    "pymupdf>=1.24",
+    "pytesseract>=0.3.10",
+    "pillow>=10.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -50,6 +59,11 @@ files = ["src", "etl"]
 [[tool.mypy.overrides]]
 # pymorphy3 ships no py.typed marker and no stub package.
 module = "pymorphy3"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# pytesseract ships no py.typed marker and no stub package.
+module = "pytesseract"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

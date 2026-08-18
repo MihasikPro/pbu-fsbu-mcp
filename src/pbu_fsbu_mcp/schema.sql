@@ -68,6 +68,15 @@ CREATE TABLE crosslink (
     kind        TEXT NOT NULL CHECK (kind IN ('заменён', 'аналог', 'отсылка'))
 );
 
+CREATE TABLE standard_crosslink (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_standard  TEXT NOT NULL REFERENCES standard(id),
+    to_standard    TEXT NOT NULL REFERENCES standard(id),
+    kind           TEXT NOT NULL CHECK (kind IN ('заменён', 'аналог', 'отсылка'))
+);
+
+CREATE INDEX idx_standard_crosslink_from ON standard_crosslink(from_standard);
+
 CREATE TABLE corpus_meta (
     built_at             TEXT NOT NULL,
     registry_hash        TEXT NOT NULL,

@@ -189,6 +189,16 @@ class Corpus:
             children=children,
         )
 
+    def successors(self, standard_id: str) -> list[str]:
+        """Standards that replace `standard_id`, empty when none."""
+        rows = self._connection.execute(
+            "SELECT to_standard FROM standard_crosslink"
+            " WHERE from_standard = ? AND kind = 'заменён'"
+            " ORDER BY to_standard",
+            (standard_id,),
+        ).fetchall()
+        return [row["to_standard"] for row in rows]
+
     def _edition(self, standard_id: str, on_date: date) -> EditionRef:
         rows = self._connection.execute(
             "SELECT id, edition_no, effective_from FROM edition WHERE standard_id = ?",
@@ -235,4 +245,5 @@ class Corpus:
             superseded_by=row["superseded_by"],
             has_1c_mapping=has_mapping,
             source_url=row["source_url"],
+            successors=self.successors(row["id"]),
         )

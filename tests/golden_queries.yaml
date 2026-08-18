@@ -1,3 +1,16 @@
+# Golden queries for search relevance regression testing (see test_search_golden.py).
+#
+# Each pair: a natural-language question an accountant/1C consultant would actually
+# ask, plus the standard and clause that genuinely answers it (established by reading
+# the standard, never by running search and recording whatever it returned).
+#
+# `on_date` (optional, ISO date) overrides the default TODAY (2026-08-14) used to
+# resolve which edition/standard is "in force". Needed for fsbu-9-2025 and
+# fsbu-10-2026: both take effect only from 2027-01-01, so on the fixed reference date
+# used everywhere else in this suite they are correctly excluded from search as
+# not-yet-effective - querying them requires a later on_date.
+#
+# fsbu-6-2020 pairs below predate this expansion.
 - query: требования к формированию информации об основных средствах
   expect_standard: fsbu-6-2020
   expect_path: "1"
@@ -7,20 +20,15 @@
 - query: признаки объекта основных средств
   expect_standard: fsbu-6-2020
   expect_path: "4"
-- query: материально-вещественная форма актива
+- query: материально-вещественная форма как признак основного средства
   expect_standard: fsbu-6-2020
   expect_path: "4.а"
-- query: организации бюджетной сферы
+- query: применяется ли стандарт про основные средства к организациям бюджетной сферы
   expect_standard: fsbu-6-2020
   expect_path: "2"
 - query: что считается объектом основных средств
   expect_standard: fsbu-6-2020
   expect_path: "4"
-# Correct answer by meaning, unreachable by wording: clause 1 defines what the
-# standard regulates but contains no cognate of «сфера»/«действие», while clause 2
-# literally contains «сферы». A lexical BM25 backend cannot rank clause 1 first here.
-# Kept as a documented limitation of the chosen approach; a semantic backend should
-# make it pass, at which point the marker must be removed.
 - query: сфера действия стандарта
   expect_standard: fsbu-6-2020
   expect_path: "1"
@@ -28,3 +36,123 @@
 - query: бухгалтерский учет основных средств организаций
   expect_standard: fsbu-6-2020
   expect_path: "1"
+
+# --- New: non-key standards, one pair each ---
+- query: что признается расходом экономического субъекта в результате выбытия активов
+  expect_standard: fsbu-10-2026
+  expect_path: "4"
+  on_date: "2027-06-01"
+- query: что признается доходом экономического субъекта в результате поступления активов
+  expect_standard: fsbu-9-2025
+  expect_path: "3"
+  on_date: "2027-06-01"
+- query: что регулирует стандарт по инвентаризации активов и обязательств
+  expect_standard: fsbu-28-2023
+  expect_path: "1"
+- query: должен ли бухгалтерский баланс давать представление о финансовом положении на отчетную дату
+  expect_standard: fsbu-4-2023
+  expect_path: "8"
+- query: какие требования должна обеспечивать учетная политика организации
+  expect_standard: pbu-1-2008
+  expect_path: "6"
+- query: что такое уменьшение экономических выгод, приводящее к уменьшению капитала организации
+  expect_standard: pbu-10-99
+  expect_path: "2"
+- query: с какой доли голосов организация считается контролирующей другое юридическое лицо
+  expect_standard: pbu-11-2008
+  expect_path: "7"
+- query: при каком проценте выручки от продаж сегмент признается отчетным
+  expect_standard: pbu-12-2010
+  expect_path: "10.а"
+- query: на какие виды подразделяются бюджетные средства для целей бухгалтерского учета
+  expect_standard: pbu-13-2000
+  expect_path: "4"
+- query: что является расходами по полученным займам - проценты и дополнительные расходы
+  expect_standard: pbu-15-2008
+  expect_path: "3"
+- query: при каком условии деятельность организации признается прекращаемой
+  expect_standard: pbu-16-02
+  expect_path: "7"
+- query: что понимается под постоянными разницами - доходы и расходы, формирующие бухгалтерскую прибыль
+  expect_standard: pbu-18-02
+  expect_path: "4"
+- query: какие документы должны подтверждать право организации на финансовые вложения при их признании
+  expect_standard: pbu-19-02
+  expect_path: "2"
+- query: при каком условии выручка по договору строительного подряда признается способом по мере готовности
+  expect_standard: pbu-2-2008
+  expect_path: "17"
+- query: что понимается под совместно осуществляемыми операциями по договору простого товарищества
+  expect_standard: pbu-20-03
+  expect_path: "6"
+- query: как отражается изменение оценочного значения - путем включения в доходы или расходы
+  expect_standard: pbu-21-2008
+  expect_path: "4"
+- query: когда ошибка в бухучете признается существенной
+  expect_standard: pbu-22-2010
+  expect_path: "3"
+- query: что относится к денежным эквивалентам в отчете о движении денежных средств
+  expect_standard: pbu-23-2011
+  expect_path: "5"
+- query: какие поисковые затраты признаются внеоборотными активами
+  expect_standard: pbu-24-2011
+  expect_path: "4"
+- query: по какому курсу пересчитывается стоимость активов в иностранной валюте в рубли
+  expect_standard: pbu-3-2006
+  expect_path: "5"
+- query: что признается событием после отчетной даты
+  expect_standard: pbu-7-98
+  expect_path: "3"
+- query: при каких условиях в бухучете признается оценочное обязательство
+  expect_standard: pbu-8-2010
+  expect_path: "5"
+- query: что признается увеличением капитала организации в результате поступления активов
+  expect_standard: pbu-9-99
+  expect_path: "2"
+
+# --- New: key standards, three pairs each ---
+- query: что регулирует стандарт по учету запасов организаций
+  expect_standard: fsbu-5-2019
+  expect_path: "1"
+- query: какие активы считаются запасами исходя из операционного цикла организации
+  expect_standard: fsbu-5-2019
+  expect_path: "3"
+- query: при каких условиях запасы признаются в бухгалтерском учете
+  expect_standard: fsbu-5-2019
+  expect_path: "5"
+- query: что регулирует стандарт по нематериальным активам организаций
+  expect_standard: fsbu-14-2022
+  expect_path: "1"
+- query: какими признаками должен обладать актив чтобы быть признанным нематериальным активом
+  expect_standard: fsbu-14-2022
+  expect_path: "4"
+- query: признается ли гудвил созданный собственными силами организации
+  expect_standard: fsbu-14-2022
+  expect_path: "10"
+- query: какие стороны договора аренды и субаренды применяют стандарт
+  expect_standard: fsbu-25-2018
+  expect_path: "2"
+- query: при каких условиях договор классифицируется как объект учета аренды
+  expect_standard: fsbu-25-2018
+  expect_path: "5"
+- query: когда арендатор может не признавать право пользования активом и обязательство по аренде
+  expect_standard: fsbu-25-2018
+  expect_path: "11"
+- query: что регулирует стандарт по капитальным вложениям организаций
+  expect_standard: fsbu-26-2020
+  expect_path: "1"
+- query: какие затраты относятся к капитальным вложениям
+  expect_standard: fsbu-26-2020
+  expect_path: "5"
+- query: при каких условиях капитальные вложения признаются в бухгалтерском учете
+  expect_standard: fsbu-26-2020
+  expect_path: "6"
+- query: на каком языке должны составляться документы бухгалтерского учета
+  expect_standard: fsbu-27-2021
+  expect_path: "5"
+- query: как правильно исправить первичный учетный документ на бумажном носителе
+  expect_standard: fsbu-27-2021
+  expect_path: "21"
+- query: где должны храниться документы бухгалтерского учета и данные из них
+  expect_standard: fsbu-27-2021
+  expect_path: "25"
