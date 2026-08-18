@@ -225,7 +225,7 @@ class Corpus:
         edition = self._edition(standard_id, self.built_at())
 
         sql = (
-            "SELECT clause_path, kind, object_ref, note, confidence"
+            "SELECT clause_path, kind, object_ref, note, confidence, verified"
             " FROM mapping"
             " WHERE standard_id = ? AND config = ?"
             "   AND (edition_from IS NULL OR edition_from <= ?)"
@@ -245,11 +245,14 @@ class Corpus:
                 presentation=self._presentation(row["object_ref"], config),
                 note=row["note"],
                 confidence=row["confidence"],
+                verified=bool(row["verified"]),
             )
             for row in rows
         ]
 
-    def its_links_for(self, standard_id: str, clause_path: str | None) -> list[dict[str, str]]:
+    def its_links_for(
+        self, standard_id: str, clause_path: str | None
+    ) -> list[dict[str, str | bool]]:
         """ИТС reference rows for a standard, optionally narrowed to one clause.
 
         Keyed on `standard_id` + `clause_path`, not `clause.id` - same reasoning
@@ -257,7 +260,7 @@ class Corpus:
         one edition's clause row.
         """
         sql = (
-            "SELECT clause_path, its_id, title, summary"
+            "SELECT clause_path, its_id, title, summary, verified"
             " FROM its_link"
             " WHERE standard_id = ?"
         )
@@ -266,9 +269,14 @@ class Corpus:
             sql += " AND clause_path = ?"
             params.append(clause_path)
         sql += " ORDER BY clause_path, its_id"
-        return [dict(row) for row in self._connection.execute(sql, params).fetchall()]
+        return [
+            {**dict(row), "verified": bool(row["verified"])}
+            for row in self._connection.execute(sql, params).fetchall()
+        ]
 
-    def clauses_by_object(self, object_ref: str, config: str) -> list[dict[str, str | int]]:
+    def clauses_by_object(
+        self, object_ref: str, config: str
+    ) -> list[dict[str, str | int | bool]]:
         """Reverse lookup: which clauses of which standards are implemented by this object.
 
         Keyed on `standard_id` + `clause_path` like `mappings_for`, not on a
@@ -285,7 +293,8 @@ class Corpus:
             "       mapping.clause_path AS clause_path,"
             "       mapping.kind AS kind,"
             "       mapping.note AS note,"
-            "       mapping.confidence AS confidence"
+            "       mapping.confidence AS confidence,"
+            "       mapping.verified AS verified"
             " FROM mapping"
             " JOIN standard ON standard.id = mapping.standard_id"
             " JOIN edition ON edition.standard_id = mapping.standard_id"
@@ -298,7 +307,7 @@ class Corpus:
             " ORDER BY mapping.confidence DESC, mapping.standard_id, mapping.clause_path",
             (config, object_ref, self.built_at().isoformat()),
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [{**dict(row), "verified": bool(row["verified"])} for row in rows]
 
     def is_known_object(self, object_ref: str, config: str) -> bool:
         """True if `object_ref` is listed in the configuration's object catalogue.

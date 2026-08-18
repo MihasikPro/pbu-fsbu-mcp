@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from pbu_fsbu_mcp.db import Corpus
+from pbu_fsbu_mcp.disclaimers import UNVERIFIED_MAPPING_WARNING
 from pbu_fsbu_mcp.tools.mapping import find_by_1c_object_payload
 
 
@@ -79,5 +80,17 @@ def test_suggestions_come_from_the_object_catalogue_not_only_mapped_objects(
 
 
 def test_payload_has_a_top_level_warnings_key(corpus: Corpus) -> None:
-    payload = find_by_1c_object_payload(corpus, "01.01", "bp30")
+    """An object with no returned rows makes no claim to warn about."""
+    payload = find_by_1c_object_payload(corpus, "Отчет.ВедомостьАмортизацииОС", "bp30")
     assert payload["warnings"] == []
+
+
+def test_clauses_carry_their_own_verified_flag(corpus: Corpus) -> None:
+    row = find_by_1c_object_payload(corpus, "01.01", "bp30")["clauses"][0]
+    assert row["verified"] is False
+
+
+def test_unverified_row_triggers_the_unverified_warning(corpus: Corpus) -> None:
+    payload = find_by_1c_object_payload(corpus, "01.01", "bp30")
+    assert all(row["verified"] is False for row in payload["clauses"])
+    assert UNVERIFIED_MAPPING_WARNING in payload["warnings"]

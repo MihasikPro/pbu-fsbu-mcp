@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from pbu_fsbu_mcp.db import Corpus
+from pbu_fsbu_mcp.disclaimers import UNVERIFIED_MAPPING_WARNING
 from pbu_fsbu_mcp.models import ItsLinkSource
 from pbu_fsbu_mcp.tools.its import get_its_references_payload
 
@@ -47,3 +48,20 @@ def test_summary_longer_than_limit_is_rejected() -> None:
             title="Заголовок",
             summary="а" * 401,
         )
+
+
+def test_links_carry_their_own_verified_flag(corpus: Corpus) -> None:
+    link = get_its_references_payload(corpus, "fsbu-6-2020", None)["links"][0]
+    assert link["verified"] is False
+
+
+def test_unverified_link_triggers_the_unverified_warning(corpus: Corpus) -> None:
+    payload = get_its_references_payload(corpus, "fsbu-6-2020", None)
+    assert all(link["verified"] is False for link in payload["links"])
+    assert UNVERIFIED_MAPPING_WARNING in payload["warnings"]
+
+
+def test_standard_without_links_has_no_warning(corpus: Corpus) -> None:
+    """No returned rows means no claim to warn about."""
+    payload = get_its_references_payload(corpus, "pbu-13-2000", None)
+    assert payload["warnings"] == []

@@ -150,8 +150,8 @@ def _insert_mappings(
             for entry in mapping_file.mappings:
                 connection.execute(
                     "INSERT INTO mapping (standard_id, clause_path, edition_from,"
-                    " config, version_from, kind, object_ref, note, confidence)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " config, version_from, kind, object_ref, note, confidence, verified)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         mapping_file.standard_id,
                         entry.clause_path,
@@ -162,6 +162,7 @@ def _insert_mappings(
                         entry.object_ref,
                         entry.note,
                         entry.confidence,
+                        entry.verified,
                     ),
                 )
 
@@ -179,8 +180,8 @@ def _insert_its_links(
         for link in its_file.links:
             connection.execute(
                 "INSERT INTO its_link (standard_id, clause_path, edition_from,"
-                " its_id, title, summary)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                " its_id, title, summary, verified)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     its_file.standard_id,
                     link.clause_path,
@@ -188,6 +189,7 @@ def _insert_its_links(
                     link.its_id,
                     link.title,
                     link.summary,
+                    link.verified,
                 ),
             )
 

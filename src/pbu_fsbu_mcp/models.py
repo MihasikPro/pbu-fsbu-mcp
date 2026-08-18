@@ -112,6 +112,10 @@ class MappingSource(BaseModel):
     Keyed on `clause_path`, not a `clause.id` - see `schema.sql` on the `mapping`
     table for why. `edition_from` is the earliest edition (by `edition_no`) this
     row applies to; `None` means "since the standard's first edition".
+
+    `verified` defaults to `False` and stays that way until a human reviewer
+    edits the YAML by hand. Tooling that authors mapping rows (including AI
+    drafting) must never set it to `True` - see `disclaimers.UNVERIFIED_MAPPING_WARNING`.
     """
 
     clause_path: str
@@ -120,6 +124,7 @@ class MappingSource(BaseModel):
     note: str | None = None
     confidence: int = Field(ge=0, le=100)
     edition_from: int | None = None
+    verified: bool = False
 
 
 class MappingFile(BaseModel):
@@ -144,6 +149,7 @@ class MappingEntry(BaseModel):
     presentation: str
     note: str | None
     confidence: int = Field(ge=0, le=100)
+    verified: bool
 
 
 class ClauseResponse(BaseModel):
@@ -172,12 +178,16 @@ class ItsLinkSource(BaseModel):
     stored - never the article's own text, which is licensed 1C content.
     `summary` is capped at 400 characters as a technical guard against
     copy-pasting the source article, not a style preference.
+
+    `verified` defaults to `False`, same rule and same reason as on
+    `MappingSource.verified` - a human reviewer sets it, tooling never does.
     """
 
     clause_path: str
     its_id: str
     title: str
     summary: str = Field(max_length=400)
+    verified: bool = False
 
 
 class ItsLinkFile(BaseModel):

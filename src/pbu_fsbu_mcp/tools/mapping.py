@@ -7,7 +7,11 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from pbu_fsbu_mcp.db import Corpus, CorpusError
-from pbu_fsbu_mcp.disclaimers import MAPPING_DISCLAIMER, NO_MAPPING_MESSAGE
+from pbu_fsbu_mcp.disclaimers import (
+    MAPPING_DISCLAIMER,
+    NO_MAPPING_MESSAGE,
+    verification_warning,
+)
 
 DEFAULT_CONFIG = "bp30"
 
@@ -28,12 +32,14 @@ def get_1c_mapping_payload(
     except CorpusError as exc:
         raise ValueError(str(exc)) from exc
 
+    warnings = [*corpus.warnings(), *verification_warning(entry.verified for entry in entries)]
+
     return {
         "standard_id": standard_id,
         "standard_title": summary.title,
         "config": config,
         "disclaimer": MAPPING_DISCLAIMER,
-        "warnings": corpus.warnings(),
+        "warnings": warnings,
         "message": "" if entries else NO_MAPPING_MESSAGE,
         "mappings": [entry.model_dump(mode="json") for entry in entries],
     }
@@ -75,12 +81,17 @@ def find_by_1c_object_payload(corpus: Corpus, object_ref: str, config: str) -> d
             else "Такой объект не найден в каталоге конфигурации."
         )
 
+    warnings = [
+        *corpus.warnings(),
+        *verification_warning(bool(row["verified"]) for row in clauses),
+    ]
+
     return {
         "object_ref": object_ref,
         "config": config,
         "outcome": outcome,
         "disclaimer": MAPPING_DISCLAIMER,
-        "warnings": corpus.warnings(),
+        "warnings": warnings,
         "message": message,
         "suggestions": suggestions,
         "clauses": clauses,

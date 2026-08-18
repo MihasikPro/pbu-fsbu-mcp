@@ -12,6 +12,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from pbu_fsbu_mcp.db import Corpus
+from pbu_fsbu_mcp.disclaimers import verification_warning
 
 HINT = (
     "Полный текст статьи получите инструментом fetch_its сервера 1c-code-check-mcp, "
@@ -24,9 +25,11 @@ def get_its_references_payload(
     corpus: Corpus, standard_id: str, clause_path: str | None
 ) -> dict[str, Any]:
     links = corpus.its_links_for(standard_id, clause_path)
+    warnings = verification_warning(bool(link["verified"]) for link in links)
     return {
         "standard_id": standard_id,
         "hint": HINT,
+        "warnings": warnings,
         "message": "" if links else NO_LINKS_MESSAGE,
         "links": links,
     }

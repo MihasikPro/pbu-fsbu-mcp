@@ -55,7 +55,11 @@ CREATE TABLE mapping (
     kind         TEXT NOT NULL,
     object_ref   TEXT NOT NULL,
     note         TEXT,
-    confidence   INTEGER NOT NULL CHECK (confidence BETWEEN 0 AND 100)
+    confidence   INTEGER NOT NULL CHECK (confidence BETWEEN 0 AND 100),
+    -- 0 until a human reviewer edits the source YAML by hand; the builder never
+    -- writes 1 on its own. DEFAULT 0 so a hand-crafted INSERT that omits the
+    -- column (as tests do) still lands on the safe "unverified" side.
+    verified     INTEGER NOT NULL DEFAULT 0 CHECK (verified IN (0, 1))
 );
 
 CREATE INDEX idx_mapping_clause ON mapping(standard_id, clause_path);
@@ -83,7 +87,9 @@ CREATE TABLE its_link (
     edition_from INTEGER,
     its_id       TEXT NOT NULL,
     title        TEXT NOT NULL,
-    summary      TEXT NOT NULL
+    summary      TEXT NOT NULL,
+    -- Same rule as mapping.verified above.
+    verified     INTEGER NOT NULL DEFAULT 0 CHECK (verified IN (0, 1))
 );
 
 CREATE INDEX idx_its_clause ON its_link(standard_id, clause_path);

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from pbu_fsbu_mcp.db import Corpus
+from pbu_fsbu_mcp.disclaimers import UNVERIFIED_MAPPING_WARNING
 from pbu_fsbu_mcp.tools.mapping import get_1c_mapping_payload
 
 
@@ -52,6 +53,20 @@ def test_mapping_text_is_separate_from_clause_text(corpus: Corpus) -> None:
 
 
 def test_payload_has_a_top_level_warnings_key(corpus: Corpus) -> None:
-    """get_1c_mapping must expose warnings the same way as the other tools."""
-    payload = get_1c_mapping_payload(corpus, "fsbu-6-2020", None, "bp30")
+    """A standard with no mapping rows at all makes no claim to warn about."""
+    payload = get_1c_mapping_payload(corpus, "pbu-13-2000", None, "bp30")
     assert payload["warnings"] == []
+
+
+def test_mapping_rows_carry_their_own_verified_flag(corpus: Corpus) -> None:
+    row = get_1c_mapping_payload(corpus, "fsbu-6-2020", None, "bp30")["mappings"][0]
+    assert row["verified"] is False
+
+
+def test_unverified_row_triggers_the_unverified_warning(corpus: Corpus) -> None:
+    """Every pilot fsbu-6-2020 mapping row is `verified: false` by construction -
+    the warning must appear until a human reviewer flips a row to `verified: true`.
+    """
+    payload = get_1c_mapping_payload(corpus, "fsbu-6-2020", None, "bp30")
+    assert all(row["verified"] is False for row in payload["mappings"])
+    assert UNVERIFIED_MAPPING_WARNING in payload["warnings"]
