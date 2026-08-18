@@ -84,6 +84,68 @@ MCP-сервер с текстами российских стандартов �
 Нормативные правовые акты не являются объектами авторского права (ст. 1259 ГК РФ).
 Код распространяется под MIT, условия на данные — в `data/LICENSE`.
 
+## Запуск локально
+
+Прежде чем выкладывать сервер на сервер в сети, его можно попробовать прямо на
+рабочей станции. Три варианта — по транспорту, который нужен вашему клиенту.
+
+### stdio — для Claude Desktop
+
+```bash
+uv run pbu-fsbu-mcp
+```
+
+Процесс говорит MCP по stdio и завершается по Ctrl+C. Corpus должен быть собран
+заранее (см. «Разработка» ниже).
+
+Claude Desktop дозванивается из облака Anthropic и не может обратиться ни к
+`http://localhost`, ни к адресу в локальной сети — единственный путь для него
+локально это stdio. Пропишите в `claude_desktop_config.json` локальный checkout
+(замените путь на свой):
+
+```json
+{
+  "mcpServers": {
+    "pbu-fsbu": {
+      "command": "uv",
+      "args": ["--directory", "C:\\path\\to\\pbu-fsbu-mcp", "run", "pbu-fsbu-mcp"]
+    }
+  }
+}
+```
+
+### HTTP — для Codex CLI и Claude Code
+
+```bash
+uv run pbu-fsbu-mcp --transport http --port 18010
+```
+
+Проверка: `curl http://127.0.0.1:18010/healthz` → `{"status":"ok",...}`. MCP-эндпоинт
+— `http://127.0.0.1:18010/mcp`.
+
+Codex CLI (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.pbu_fsbu]
+url = "http://127.0.0.1:18010/mcp"
+```
+
+Claude Code:
+
+```bash
+claude mcp add --transport http pbu-fsbu http://127.0.0.1:18010/mcp
+```
+
+### Контейнер
+
+```bash
+docker compose -f deploy/compose.local.yml up --build
+```
+
+Собирает образ из исходников репозитория (не тянет опубликованный) и публикует
+порт только на `127.0.0.1:18010` — контейнер не виден из локальной сети, только
+с этой же машины. Клиенты подключаются так же, как в разделе HTTP выше.
+
 ## Установка
 
 ### Codex CLI
