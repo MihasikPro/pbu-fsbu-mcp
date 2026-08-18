@@ -8,6 +8,8 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from pbu_fsbu_mcp.db import Corpus, CorpusError
+from pbu_fsbu_mcp.disclaimers import verification_warning
+from pbu_fsbu_mcp.models import MappingStatus, StandardSummary
 
 
 def parse_on_date(value: str | None) -> date:
@@ -20,6 +22,20 @@ def parse_on_date(value: str | None) -> date:
         raise ValueError(f"on_date должен быть датой в формате ГГГГ-ММ-ДД, получено {value!r}") from exc
 
 
+def _draft_warning(summaries: list[StandardSummary]) -> list[str]:
+    """Warn when any listed standard's projection is an unreviewed draft.
+
+    `mapping_status` already says «черновик» per row, but a caller that skims
+    the warnings and not the rows would otherwise read "this standard has a
+    projection" with nothing telling it nobody has checked that projection.
+    """
+    return verification_warning(
+        summary.mapping_status is MappingStatus.VERIFIED
+        for summary in summaries
+        if summary.mapping_status is not MappingStatus.NONE
+    )
+
+
 def list_standards_payload(
     corpus: Corpus, kind: str | None, on_date: str | None
 ) -> dict[str, Any]:
@@ -27,7 +43,7 @@ def list_standards_payload(
     summaries = corpus.list_standards(as_of, kind=kind)
     return {
         "as_of_date": as_of.isoformat(),
-        "warnings": corpus.warnings(),
+        "warnings": corpus.warnings() + _draft_warning(summaries),
         "standards": [summary.model_dump(mode="json") for summary in summaries],
     }
 
@@ -43,7 +59,7 @@ def get_standard_payload(
         raise ValueError(str(exc)) from exc
     return {
         "as_of_date": as_of.isoformat(),
-        "warnings": corpus.warnings(),
+        "warnings": corpus.warnings() + _draft_warning([summary]),
         "standard": summary.model_dump(mode="json"),
         "outline": [{"path": path, "heading": heading} for path, heading in outline],
     }
