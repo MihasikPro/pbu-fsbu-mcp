@@ -48,7 +48,7 @@ def test_object_without_mapping_reports_empty_result(corpus: Corpus) -> None:
     This must be distinguishable from an unrecognised object: `outcome` says
     'known_no_mapping', not 'unknown', even though `clauses` is empty in both cases.
     """
-    payload = find_by_1c_object_payload(corpus, "Отчет.ВедомостьАмортизацииОС", "bp30")
+    payload = find_by_1c_object_payload(corpus, "01.09", "bp30")
     assert isinstance(payload["clauses"], list)
     assert payload["clauses"] == []
     assert payload["outcome"] == "known_no_mapping"
@@ -57,7 +57,7 @@ def test_object_without_mapping_reports_empty_result(corpus: Corpus) -> None:
 def test_known_object_without_mapping_is_not_offered_as_a_suggestion_of_itself(
     corpus: Corpus,
 ) -> None:
-    payload = find_by_1c_object_payload(corpus, "Отчет.ВедомостьАмортизацииОС", "bp30")
+    payload = find_by_1c_object_payload(corpus, "01.09", "bp30")
     assert payload["suggestions"] == []
 
 
@@ -81,7 +81,7 @@ def test_suggestions_come_from_the_object_catalogue_not_only_mapped_objects(
 
 def test_payload_has_a_top_level_warnings_key(corpus: Corpus) -> None:
     """An object with no returned rows makes no claim to warn about."""
-    payload = find_by_1c_object_payload(corpus, "Отчет.ВедомостьАмортизацииОС", "bp30")
+    payload = find_by_1c_object_payload(corpus, "01.09", "bp30")
     assert payload["warnings"] == []
 
 
