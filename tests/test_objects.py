@@ -22,6 +22,21 @@ def test_every_entry_has_presentation() -> None:
     assert all(item.presentation for item in load_catalog(CATALOG).values())
 
 
+def test_every_ref_is_a_qualified_metadata_name_or_account_number() -> None:
+    """The catalogue's own header rule: `ref` must be exactly how the object is
+    named in the configuration. "УчетнаяПолитика.X" is not a real 1C metadata
+    type - a genuine accounting-policy setting lives inside a real object
+    (e.g. a resource of RegisterSveden.UchetnayaPolitikaOrganizatsiy) and must
+    be catalogued under that object's own kind, not a placeholder "настройкаУП"."""
+    for ref in load_catalog(CATALOG):
+        assert not ref.startswith("УчетнаяПолитика."), ref
+
+
+def test_accounting_policy_limit_is_catalogued_under_its_real_register() -> None:
+    catalog = load_catalog(CATALOG)
+    assert catalog["РегистрСведений.УчетнаяПолитикаОрганизаций"].kind == "регистр"
+
+
 def test_unknown_kind_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ConfigObject(ref="X", kind="таблица", presentation="Нечто")

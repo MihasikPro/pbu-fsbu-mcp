@@ -63,6 +63,15 @@ def test_mapping_rows_carry_their_own_verified_flag(corpus: Corpus) -> None:
     assert row["verified"] is False
 
 
+def test_clause_5_maps_onto_a_real_qualified_register(corpus: Corpus) -> None:
+    """Regression for the "УчетнаяПолитика.ЛимитСтоимостиОС" pseudo-object: the
+    limit lives in a resource of the real РегистрСведений.УчетнаяПолитикаОрганизаций,
+    confirmed via config_help against БП 3.0 - not an unaddressable placeholder."""
+    payload = get_1c_mapping_payload(corpus, "fsbu-6-2020", "5", "bp30")
+    refs = {row["object_ref"] for row in payload["mappings"]}
+    assert refs == {"РегистрСведений.УчетнаяПолитикаОрганизаций"}
+
+
 def test_unverified_row_triggers_the_unverified_warning(corpus: Corpus) -> None:
     """Every pilot fsbu-6-2020 mapping row is `verified: false` by construction -
     the warning must appear until a human reviewer flips a row to `verified: true`.
