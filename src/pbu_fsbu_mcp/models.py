@@ -131,6 +131,21 @@ class MappingFile(BaseModel):
     mappings: list[MappingSource] = Field(default_factory=list)
 
 
+class MappingEntry(BaseModel):
+    """One projection row returned by `get_1c_mapping`.
+
+    This is an interpretation of a clause, not the clause itself - it never
+    carries clause text, on purpose. See `disclaimers.MAPPING_DISCLAIMER`.
+    """
+
+    clause_path: str
+    kind: str
+    object_ref: str
+    presentation: str
+    note: str | None
+    confidence: int = Field(ge=0, le=100)
+
+
 class ClauseResponse(BaseModel):
     """A single clause with full provenance."""
 

@@ -61,6 +61,21 @@ CREATE TABLE mapping (
 CREATE INDEX idx_mapping_clause ON mapping(standard_id, clause_path);
 CREATE INDEX idx_mapping_object ON mapping(config, object_ref);
 
+-- Catalogue of 1C configuration objects a mapping row may reference, mirrored
+-- from `data/sources/objects/<config>.yaml` (see `pbu_fsbu_mcp.objects`) so
+-- that resolving a human-readable presentation at query time needs no access
+-- to the YAML sources - the SQLite file is the corpus's only runtime input.
+-- Keyed on (config, ref) rather than ref alone: `mapping.config` already
+-- shows the catalogue is per-configuration, and two configurations are free
+-- to reuse the same object reference for unrelated objects.
+CREATE TABLE config_object (
+    config       TEXT NOT NULL,
+    ref          TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    presentation TEXT NOT NULL,
+    PRIMARY KEY (config, ref)
+);
+
 CREATE TABLE its_link (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     standard_id  TEXT NOT NULL REFERENCES standard(id),

@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from pbu_fsbu_mcp.disclaimers import corpus_warnings
-from pbu_fsbu_mcp.models import ClauseResponse, StandardSummary
+from pbu_fsbu_mcp.models import ClauseResponse, MappingEntry, StandardSummary
 from pbu_fsbu_mcp.temporal import EditionRef, resolve_edition, status_on
 
 
@@ -200,6 +200,52 @@ class Corpus:
             (standard_id,),
         ).fetchall()
         return [row["to_standard"] for row in rows]
+
+    def mappings_for(
+        self, standard_id: str, clause_path: str | None, config: str
+    ) -> list[MappingEntry]:
+        """Projection rows for a standard, optionally narrowed to one clause.
+
+        Resolved as of `built_at()`, not "today": a projection is maintained
+        together with the corpus and is meant to reflect the edition the
+        corpus considers current, not whatever the caller's clock says. Rows
+        whose `edition_from` is NULL apply from the standard's first edition;
+        rows naming a later edition are excluded until that edition is the
+        one in force as of `built_at()`.
+        """
+        edition = self._edition(standard_id, self.built_at())
+
+        sql = (
+            "SELECT clause_path, kind, object_ref, note, confidence"
+            " FROM mapping"
+            " WHERE standard_id = ? AND config = ?"
+            "   AND (edition_from IS NULL OR edition_from <= ?)"
+        )
+        params: list[str | int] = [standard_id, config, edition.edition_no]
+        if clause_path is not None:
+            sql += " AND clause_path = ?"
+            params.append(clause_path)
+        sql += " ORDER BY confidence DESC, object_ref"
+
+        rows = self._connection.execute(sql, params).fetchall()
+        return [
+            MappingEntry(
+                clause_path=row["clause_path"],
+                kind=row["kind"],
+                object_ref=row["object_ref"],
+                presentation=self._presentation(row["object_ref"], config),
+                note=row["note"],
+                confidence=row["confidence"],
+            )
+            for row in rows
+        ]
+
+    def _presentation(self, object_ref: str, config: str) -> str:
+        row = self._connection.execute(
+            "SELECT presentation FROM config_object WHERE config = ? AND ref = ?",
+            (config, object_ref),
+        ).fetchone()
+        return row["presentation"] if row else object_ref
 
     def _edition(self, standard_id: str, on_date: date) -> EditionRef:
         rows = self._connection.execute(

@@ -140,6 +140,11 @@ def _insert_mappings(
         if not catalog_path.exists():
             continue
         catalog = load_catalog(catalog_path)
+        for config_object in catalog.values():
+            connection.execute(
+                "INSERT INTO config_object (config, ref, kind, presentation) VALUES (?, ?, ?, ?)",
+                (config_dir.name, config_object.ref, config_object.kind, config_object.presentation),
+            )
         for mapping_file in load_mappings(config_dir, catalog, standards):
             for entry in mapping_file.mappings:
                 connection.execute(
