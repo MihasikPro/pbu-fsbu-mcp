@@ -10,7 +10,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from pbu_fsbu_mcp.loader import load_all, load_crosslinks, load_mappings
+from pbu_fsbu_mcp.loader import load_all, load_crosslinks, load_its_links, load_mappings
 from pbu_fsbu_mcp.models import Standard
 from pbu_fsbu_mcp.objects import load_catalog
 from pbu_fsbu_mcp.search.morphology import lemmatize
@@ -57,6 +57,7 @@ def build(sources_dir: Path, output: Path, built_at: date) -> None:
                 )
 
             _insert_mappings(connection, sources_dir.parent, standards)
+            _insert_its_links(connection, sources_dir.parent, standards)
 
             _insert_meta(connection, standards, built_at)
             connection.commit()
@@ -163,6 +164,32 @@ def _insert_mappings(
                         entry.confidence,
                     ),
                 )
+
+
+def _insert_its_links(
+    connection: sqlite3.Connection, sources_dir: Path, standards: list[Standard]
+) -> None:
+    """Load and insert ИТС reference rows for every `data/sources/its/*.yaml` file.
+
+    Missing directory means no ИТС references have been authored yet - silently
+    does nothing, same as `_insert_mappings` does for a missing `mappings/` root.
+    """
+    its_dir = sources_dir / "its"
+    for its_file in load_its_links(its_dir, standards):
+        for link in its_file.links:
+            connection.execute(
+                "INSERT INTO its_link (standard_id, clause_path, edition_from,"
+                " its_id, title, summary)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    its_file.standard_id,
+                    link.clause_path,
+                    None,
+                    link.its_id,
+                    link.title,
+                    link.summary,
+                ),
+            )
 
 
 def _insert_meta(

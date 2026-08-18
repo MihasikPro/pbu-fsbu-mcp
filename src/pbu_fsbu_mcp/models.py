@@ -165,6 +165,28 @@ class ClauseResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ItsLinkSource(BaseModel):
+    """One ИТС reference row as authored in a `data/sources/its/*.yaml` file.
+
+    Only an identifier, a title, and a short summary in our own words are
+    stored - never the article's own text, which is licensed 1C content.
+    `summary` is capped at 400 characters as a technical guard against
+    copy-pasting the source article, not a style preference.
+    """
+
+    clause_path: str
+    its_id: str
+    title: str
+    summary: str = Field(max_length=400)
+
+
+class ItsLinkFile(BaseModel):
+    """One `data/sources/its/*.yaml` file."""
+
+    standard_id: str
+    links: list[ItsLinkSource] = Field(default_factory=list)
+
+
 class SearchHit(BaseModel):
     standard_id: str
     standard_title: str

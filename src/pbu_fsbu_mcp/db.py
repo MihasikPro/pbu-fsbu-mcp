@@ -249,6 +249,25 @@ class Corpus:
             for row in rows
         ]
 
+    def its_links_for(self, standard_id: str, clause_path: str | None) -> list[dict[str, str]]:
+        """ИТС reference rows for a standard, optionally narrowed to one clause.
+
+        Keyed on `standard_id` + `clause_path`, not `clause.id` - same reasoning
+        as `mappings_for`: a reference is a statement about the norm, not about
+        one edition's clause row.
+        """
+        sql = (
+            "SELECT clause_path, its_id, title, summary"
+            " FROM its_link"
+            " WHERE standard_id = ?"
+        )
+        params: list[str] = [standard_id]
+        if clause_path is not None:
+            sql += " AND clause_path = ?"
+            params.append(clause_path)
+        sql += " ORDER BY clause_path, its_id"
+        return [dict(row) for row in self._connection.execute(sql, params).fetchall()]
+
     def clauses_by_object(self, object_ref: str, config: str) -> list[dict[str, str | int]]:
         """Reverse lookup: which clauses of which standards are implemented by this object.
 

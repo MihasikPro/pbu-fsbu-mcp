@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from pbu_fsbu_mcp.models import CrosslinkSource, MappingFile, Standard
+from pbu_fsbu_mcp.models import CrosslinkSource, ItsLinkFile, MappingFile, Standard
 from pbu_fsbu_mcp.objects import ConfigObject
 
 
@@ -145,4 +145,38 @@ def load_mappings(
                     f" floor for {entry.object_ref!r}"
                 )
         files.append(mapping_file)
+    return files
+
+
+def load_its_links(directory: Path, standards: list[Standard]) -> list[ItsLinkFile]:
+    """Load ИТС reference files; only ids, titles and our own summaries are stored.
+
+    Missing directory means no ИТС references yet. Rejects, per entry, with the
+    offending file's path in the message - same rules as `load_mappings`:
+    - a `clause_path` ending in `.заключение` (unstable parser artifact);
+    - a `clause_path` that does not resolve to a real clause of `standard_id`
+      in any edition.
+    """
+    if not directory.exists():
+        return []
+
+    known_clause_paths = _known_clause_paths(standards)
+    files: list[ItsLinkFile] = []
+    for path in sorted(directory.glob("*.yaml")):
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        its_file = ItsLinkFile.model_validate(raw)
+        clause_paths = known_clause_paths.get(its_file.standard_id, set())
+        for link in its_file.links:
+            if link.clause_path.endswith(_UNSTABLE_PATH_SUFFIX):
+                raise ValueError(
+                    f"{path}: clause_path {link.clause_path!r} is invalid - "
+                    f"{_UNSTABLE_PATH_SUFFIX!r} is a clause-parser artifact, not a"
+                    " real clause"
+                )
+            if link.clause_path not in clause_paths:
+                raise ValueError(
+                    f"{path}: clause_path {link.clause_path!r} does not resolve to"
+                    f" any edition of standard {its_file.standard_id!r}"
+                )
+        files.append(its_file)
     return files
