@@ -3,6 +3,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+import yaml
 
 from etl.build_db import build
 from pbu_fsbu_mcp.db import ClauseNotFound, Corpus, StandardNotFound
@@ -101,6 +102,106 @@ def test_clause_13_conclusion_is_its_own_child_clause(corpus: Corpus) -> None:
 def test_clause_13_reports_children_in_document_order(corpus: Corpus) -> None:
     clause = corpus.get_clause("fsbu-6-2020", "13", TODAY)
     assert clause.children == ["13.а", "13.б", "13.заключение"]
+
+
+@pytest.fixture
+def two_edition_corpus(tmp_path: Path) -> Corpus:
+    """One standard, two editions, one `mapping` row gated to the second edition.
+
+    Purpose-built rather than reusing `corpus_db`: the point of this test is that
+    `has_1c_mapping` follows `mapping.edition_from` across an amendment, which
+    needs a standard with more than one edition and a mapping row inserted by
+    hand (Plan 3 has not added a mapping-loading tool yet).
+    """
+    standards_dir = tmp_path / "sources" / "standards"
+    standards_dir.mkdir(parents=True)
+    (standards_dir / "test-std.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "test-std",
+                "kind": "ФСБУ",
+                "number": "99/2099",
+                "year": 2020,
+                "title": "Тестовый стандарт с двумя редакциями",
+                "order_date": "2020-01-01",
+                "order_no": "1н",
+                "effective_from": "2020-01-01",
+                "source_url": "https://example.org/test-std",
+                "editions": [
+                    {
+                        "edition_no": 1,
+                        "amending_order": None,
+                        "effective_from": "2020-01-01",
+                        "clauses": [
+                            {
+                                "path": "1",
+                                "parent_path": None,
+                                "heading": None,
+                                "text": "Текст пункта 1 первой редакции.",
+                            }
+                        ],
+                    },
+                    {
+                        "edition_no": 2,
+                        "amending_order": "2н",
+                        "effective_from": "2022-01-01",
+                        "clauses": [
+                            {
+                                "path": "1",
+                                "parent_path": None,
+                                "heading": None,
+                                "text": "Текст пункта 1 второй редакции.",
+                            }
+                        ],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output = tmp_path / "corpus.db"
+    build(standards_dir, output, built_at=TODAY)
+
+    connection = sqlite3.connect(output)
+    connection.execute(
+        "INSERT INTO mapping"
+        " (standard_id, clause_path, edition_from, config, version_from, kind, object_ref,"
+        " note, confidence)"
+        " VALUES ('test-std', '1', 2, 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
+    )
+    connection.commit()
+    connection.close()
+
+    return Corpus(output)
+
+
+def test_has_1c_mapping_is_false_before_the_edition_it_applies_from(
+    two_edition_corpus: Corpus,
+) -> None:
+    """The mapping row targets edition 2; on a date when edition 1 is in force
+    (edition 2 takes effect 2022-01-01), it must not count."""
+    summary = two_edition_corpus.get_standard("test-std", date(2021, 1, 1))
+    assert summary.has_1c_mapping is False
+
+
+def test_has_1c_mapping_is_true_from_the_edition_it_applies_from(
+    two_edition_corpus: Corpus,
+) -> None:
+    summary = two_edition_corpus.get_standard("test-std", date(2023, 1, 1))
+    assert summary.has_1c_mapping is True
+
+
+def test_list_standards_has_1c_mapping_matches_get_standard(
+    two_edition_corpus: Corpus,
+) -> None:
+    """`list_standards` computes `has_1c_mapping` in a single batched query -
+    it must agree with `get_standard`'s per-standard answer on both sides of
+    the edition boundary."""
+    before = {item.id: item for item in two_edition_corpus.list_standards(date(2021, 1, 1))}
+    after = {item.id: item for item in two_edition_corpus.list_standards(date(2023, 1, 1))}
+    assert before["test-std"].has_1c_mapping is False
+    assert after["test-std"].has_1c_mapping is True
 
 
 def test_corpus_opens_under_a_path_containing_a_hash(

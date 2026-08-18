@@ -14,14 +14,54 @@ def test_dangling_mapping_is_reported(corpus_db: Path, tmp_path: Path) -> None:
     connection = sqlite3.connect(copy)
     connection.execute("PRAGMA foreign_keys = OFF")
     connection.execute(
-        "INSERT INTO mapping (clause_id, config, version_from, kind, object_ref, note, confidence)"
-        " VALUES ('fsbu-6-2020@1#999', 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
+        "INSERT INTO mapping"
+        " (standard_id, clause_path, edition_from, config, version_from, kind, object_ref,"
+        " note, confidence)"
+        " VALUES ('fsbu-6-2020', '999', NULL, 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
     )
     connection.commit()
     connection.close()
 
     violations = check(copy)
     assert any("mapping" in violation for violation in violations)
+
+
+def test_mapping_with_unknown_edition_from_is_reported(corpus_db: Path, tmp_path: Path) -> None:
+    """`edition_from` must name an edition that actually exists for the standard."""
+    copy = tmp_path / "bad_edition_from.db"
+    copy.write_bytes(corpus_db.read_bytes())
+    connection = sqlite3.connect(copy)
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute(
+        "INSERT INTO mapping"
+        " (standard_id, clause_path, edition_from, config, version_from, kind, object_ref,"
+        " note, confidence)"
+        " VALUES ('fsbu-6-2020', '1', 99, 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
+    )
+    connection.commit()
+    connection.close()
+
+    violations = check(copy)
+    assert any("edition_from" in violation for violation in violations)
+
+
+def test_mapping_onto_a_zakluchenie_path_is_reported(corpus_db: Path, tmp_path: Path) -> None:
+    """`.заключение` paths are ETL artefacts, not addressable projection targets."""
+    copy = tmp_path / "mapping_zakluchenie.db"
+    copy.write_bytes(corpus_db.read_bytes())
+    connection = sqlite3.connect(copy)
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute(
+        "INSERT INTO mapping"
+        " (standard_id, clause_path, edition_from, config, version_from, kind, object_ref,"
+        " note, confidence)"
+        " VALUES ('fsbu-6-2020', '13.заключение', NULL, 'bp30', NULL, 'счёт', '01.01', NULL, 90)"
+    )
+    connection.commit()
+    connection.close()
+
+    violations = check(copy)
+    assert any("заключение" in violation for violation in violations)
 
 
 def test_clause_without_edition_is_reported(corpus_db: Path, tmp_path: Path) -> None:

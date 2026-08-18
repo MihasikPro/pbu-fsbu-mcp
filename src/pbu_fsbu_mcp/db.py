@@ -119,7 +119,8 @@ class Corpus:
             params = (kind,)
         query += " ORDER BY year, number"
         rows = self._connection.execute(query, params).fetchall()
-        return [self._summary(row, on_date) for row in rows]
+        mapped_ids = self._mapped_standard_ids([row["id"] for row in rows], on_date)
+        return [self._summary(row, on_date, row["id"] in mapped_ids) for row in rows]
 
     def get_standard(self, standard_id: str, on_date: date) -> StandardSummary:
         row = self._connection.execute(
@@ -127,7 +128,8 @@ class Corpus:
         ).fetchone()
         if row is None:
             raise StandardNotFound(standard_id)
-        return self._summary(row, on_date)
+        mapped_ids = self._mapped_standard_ids([standard_id], on_date)
+        return self._summary(row, on_date, standard_id in mapped_ids)
 
     def outline(self, standard_id: str, on_date: date) -> list[tuple[str, str | None]]:
         edition = self._edition(standard_id, on_date)
@@ -219,15 +221,33 @@ class Corpus:
             raise NoEditionOnDate(standard_id, on_date)
         return edition
 
-    def _summary(self, row: sqlite3.Row, on_date: date) -> StandardSummary:
-        has_mapping = (
-            self._connection.execute(
-                "SELECT 1 FROM mapping JOIN clause ON clause.id = mapping.clause_id"
-                " WHERE clause.standard_id = ? LIMIT 1",
-                (row["id"],),
-            ).fetchone()
-            is not None
-        )
+    def _mapped_standard_ids(self, standard_ids: list[str], on_date: date) -> set[str]:
+        """Standards with a `mapping` row applicable to their edition in force on `on_date`.
+
+        One query for however many standards are being summarised - `list_standards`
+        used to run this per row, turning a page of standards into a page of queries.
+        A mapping applies once its `edition_from` (NULL = the standard's first edition)
+        no longer exceeds the edition number in force on `on_date`; a standard with no
+        edition yet in force on that date contributes no rows and is simply absent
+        from the result.
+        """
+        if not standard_ids:
+            return set()
+        placeholders = ",".join("?" for _ in standard_ids)
+        rows = self._connection.execute(
+            "SELECT DISTINCT mapping.standard_id FROM mapping"
+            " JOIN edition ON edition.standard_id = mapping.standard_id"
+            " WHERE mapping.standard_id IN (" + placeholders + ")"
+            " AND edition.effective_from = ("
+            "     SELECT MAX(other.effective_from) FROM edition AS other"
+            "     WHERE other.standard_id = mapping.standard_id AND other.effective_from <= ?"
+            " )"
+            " AND (mapping.edition_from IS NULL OR mapping.edition_from <= edition.edition_no)",
+            (*standard_ids, on_date.isoformat()),
+        ).fetchall()
+        return {row["standard_id"] for row in rows}
+
+    def _summary(self, row: sqlite3.Row, on_date: date, has_mapping: bool) -> StandardSummary:
         return StandardSummary(
             id=row["id"],
             kind=row["kind"],

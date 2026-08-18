@@ -37,9 +37,19 @@ CREATE TABLE clause (
 CREATE INDEX idx_clause_edition ON clause(edition_id);
 CREATE INDEX idx_edition_standard ON edition(standard_id, effective_from);
 
+-- mapping / its_link / crosslink key on (standard_id, clause_path) rather than
+-- clause.id (which embeds the edition, e.g. `fsbu-6-2020@1#12`). A projection is
+-- a statement about the norm, not about one edition's wording: it must keep
+-- resolving after an amendment creates a fresh set of clause rows, instead of
+-- silently going dark because the edition-qualified id it pointed at is gone.
+-- `edition_from` is the earliest edition (by `edition.edition_no`) the row applies
+-- to; NULL means "since the standard's first edition". There is no `edition_to` -
+-- a later override is expressed as a second row with a later `edition_from`.
 CREATE TABLE mapping (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    clause_id    TEXT NOT NULL REFERENCES clause(id),
+    standard_id  TEXT NOT NULL REFERENCES standard(id),
+    clause_path  TEXT NOT NULL,
+    edition_from INTEGER,
     config       TEXT NOT NULL,
     version_from TEXT,
     kind         TEXT NOT NULL,
@@ -48,25 +58,34 @@ CREATE TABLE mapping (
     confidence   INTEGER NOT NULL CHECK (confidence BETWEEN 0 AND 100)
 );
 
-CREATE INDEX idx_mapping_clause ON mapping(clause_id);
+CREATE INDEX idx_mapping_clause ON mapping(standard_id, clause_path);
 CREATE INDEX idx_mapping_object ON mapping(config, object_ref);
 
 CREATE TABLE its_link (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    clause_id TEXT NOT NULL REFERENCES clause(id),
-    its_id    TEXT NOT NULL,
-    title     TEXT NOT NULL,
-    summary   TEXT NOT NULL
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    standard_id  TEXT NOT NULL REFERENCES standard(id),
+    clause_path  TEXT NOT NULL,
+    edition_from INTEGER,
+    its_id       TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    summary      TEXT NOT NULL
 );
 
-CREATE INDEX idx_its_clause ON its_link(clause_id);
+CREATE INDEX idx_its_clause ON its_link(standard_id, clause_path);
 
 CREATE TABLE crosslink (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_clause TEXT NOT NULL REFERENCES clause(id),
-    to_clause   TEXT NOT NULL REFERENCES clause(id),
-    kind        TEXT NOT NULL CHECK (kind IN ('заменён', 'аналог', 'отсылка'))
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_standard     TEXT NOT NULL REFERENCES standard(id),
+    from_clause_path  TEXT NOT NULL,
+    from_edition_from INTEGER,
+    to_standard       TEXT NOT NULL REFERENCES standard(id),
+    to_clause_path    TEXT NOT NULL,
+    to_edition_from   INTEGER,
+    kind              TEXT NOT NULL CHECK (kind IN ('заменён', 'аналог', 'отсылка'))
 );
+
+CREATE INDEX idx_crosslink_from ON crosslink(from_standard, from_clause_path);
+CREATE INDEX idx_crosslink_to ON crosslink(to_standard, to_clause_path);
 
 CREATE TABLE standard_crosslink (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
