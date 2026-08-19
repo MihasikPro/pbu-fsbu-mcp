@@ -1,7 +1,9 @@
+import sqlite3
 from datetime import date
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from etl.build_db import build
@@ -11,11 +13,69 @@ from pbu_fsbu_mcp.models import ItsLinkSource
 from pbu_fsbu_mcp.tools.its import get_its_references_payload
 
 SOURCES = Path(__file__).resolve().parents[1] / "data" / "sources" / "standards"
+TODAY = date(2026, 8, 14)
 
 
 @pytest.fixture
 def corpus(corpus_db: Path) -> Corpus:
     return Corpus(corpus_db)
+
+
+def _build_its_corpus(tmp_path: Path, its_rows: list[tuple[str, bool]]) -> Corpus:
+    """One standard, one clause, `its_link` rows inserted by hand with the given
+    `verified` values - purpose-built (like `test_db.py::two_edition_corpus`) so
+    `get_its_references`'s verification-warning wiring can be tested
+    independently of the real corpus.
+    """
+    standards_dir = tmp_path / "sources" / "standards"
+    standards_dir.mkdir(parents=True)
+    (standards_dir / "test-std.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "test-std",
+                "kind": "ФСБУ",
+                "number": "99/2099",
+                "year": 2020,
+                "title": "Тестовый стандарт",
+                "order_date": "2020-01-01",
+                "order_no": "1н",
+                "effective_from": "2020-01-01",
+                "source_url": "https://example.org/test-std",
+                "editions": [
+                    {
+                        "edition_no": 1,
+                        "amending_order": None,
+                        "effective_from": "2020-01-01",
+                        "clauses": [
+                            {
+                                "path": "1",
+                                "parent_path": None,
+                                "heading": None,
+                                "text": "Текст пункта 1.",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output = tmp_path / "corpus.db"
+    build(standards_dir, output, built_at=TODAY)
+
+    connection = sqlite3.connect(output)
+    for its_id, verified in its_rows:
+        connection.execute(
+            "INSERT INTO its_link"
+            " (standard_id, clause_path, edition_from, its_id, title, summary, verified)"
+            " VALUES ('test-std', '1', NULL, ?, 'Заголовок', 'Выжимка своими словами.', ?)",
+            (its_id, int(verified)),
+        )
+    connection.commit()
+    connection.close()
+
+    return Corpus(output)
 
 
 def test_returns_links_for_standard(corpus: Corpus) -> None:
@@ -54,15 +114,23 @@ def test_summary_longer_than_limit_is_rejected() -> None:
         )
 
 
-def test_links_carry_their_own_verified_flag(corpus: Corpus) -> None:
-    link = get_its_references_payload(corpus, "fsbu-6-2020", None)["links"][0]
-    assert link["verified"] is False
+def test_links_carry_their_own_verified_flag(tmp_path: Path) -> None:
+    corpus = _build_its_corpus(tmp_path, [("its/1", True)])
+    link = get_its_references_payload(corpus, "test-std", None)["links"][0]
+    assert link["verified"] is True
 
 
-def test_unverified_link_triggers_the_unverified_warning(corpus: Corpus) -> None:
-    payload = get_its_references_payload(corpus, "fsbu-6-2020", None)
+def test_unverified_link_triggers_the_unverified_warning(tmp_path: Path) -> None:
+    corpus = _build_its_corpus(tmp_path, [("its/1", False)])
+    payload = get_its_references_payload(corpus, "test-std", None)
     assert all(link["verified"] is False for link in payload["links"])
     assert UNVERIFIED_MAPPING_WARNING in payload["warnings"]
+
+
+def test_verified_link_does_not_trigger_the_unverified_warning(tmp_path: Path) -> None:
+    corpus = _build_its_corpus(tmp_path, [("its/1", True)])
+    payload = get_its_references_payload(corpus, "test-std", None)
+    assert UNVERIFIED_MAPPING_WARNING not in payload["warnings"]
 
 
 def test_standard_without_links_has_no_warning(corpus: Corpus) -> None:
