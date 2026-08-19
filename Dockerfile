@@ -15,8 +15,14 @@ COPY data/sources ./data/sources
 # editable install's .pth file points back at /app/src, which is on disk in
 # this stage but not guaranteed to stay at that exact path once copied.
 RUN uv sync --no-dev --frozen --no-editable
-RUN uv run python -m etl.build_db --sources data/sources/standards --output data/build/pbu_fsbu.db
-RUN uv run python -m etl.validate --db data/build/pbu_fsbu.db
+# --no-sync on both, and this is not belt-and-braces: `uv run` re-syncs the
+# environment by default, using the project's defaults rather than the flags
+# given to `uv sync` above. Without it the editable install and the dev group
+# come back, the venv ends up with a .pth pointing at /app/src, and the runtime
+# stage - which does not copy src/ - dies with ModuleNotFoundError on startup.
+# Verified by building: that is exactly what happened before this flag was added.
+RUN uv run --no-sync python -m etl.build_db --sources data/sources/standards --output data/build/pbu_fsbu.db
+RUN uv run --no-sync python -m etl.validate --db data/build/pbu_fsbu.db
 
 FROM python:3.12-slim-bookworm
 WORKDIR /app
