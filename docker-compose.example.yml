@@ -1,6 +1,6 @@
 services:
   pbu-fsbu-mcp:
-    image: ghcr.io/prokopchuk/pbu-fsbu-mcp:latest
+    image: ghcr.io/mihasikpro/pbu-fsbu-mcp:latest
     container_name: pbu-fsbu-mcp
     restart: unless-stopped
     ports:
