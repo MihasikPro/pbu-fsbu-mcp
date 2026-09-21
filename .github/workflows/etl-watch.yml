@@ -19,20 +19,41 @@ jobs:
           enable-cache: true
       - run: uv sync --all-groups
 
+      # Exit codes of etl.watch: 0 - в согласии, 1 - расхождение, 2 - реестр недоступен.
+      # Раньше шаг стоял под continue-on-error и любой ненулевой код читался как
+      # расхождение, поэтому 503 от Минфина запускал ветку обновления фикстуры -
+      # а она берёт HTML из кэша, которого после неудачной загрузки нет.
       - name: Compare live registry against corpus
         id: watch
-        continue-on-error: true
-        run: uv run --group etl python -m etl.watch --live --report registry-diff.md
+        run: |
+          for attempt in 1 2 3; do
+            set +e
+            uv run --group etl python -m etl.watch --live --report registry-diff.md
+            code=$?
+            set -e
+            if [ "$code" -ne 2 ]; then
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Реестр Минфина недоступен (попытка $attempt из 3), повтор через 60 с"
+              sleep 60
+            fi
+          done
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 2 ]; then
+            echo "::error::Реестр Минфина недоступен после 3 попыток - сверка не выполнена"
+            exit 1
+          fi
 
       - name: Refresh registry fixture
-        if: steps.watch.outcome == 'failure'
+        if: steps.watch.outputs.code == '1'
         run: >
           uv run --group etl python -m etl.watch
           --save-fixture tests/fixtures/minfin_registry.html
           --report registry-diff.md
 
       - name: Open pull request
-        if: steps.watch.outcome == 'failure'
+        if: steps.watch.outputs.code == '1'
         uses: peter-evans/create-pull-request@v6
         with:
           branch: etl/registry-drift

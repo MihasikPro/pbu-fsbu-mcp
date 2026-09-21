@@ -7,10 +7,14 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from etl.http_client import fetch
+from etl.http_client import FetchError, fetch
 from etl.registry import REGISTRY_URL, RegistryRow, parse
 from pbu_fsbu_mcp.loader import load_all
 from pbu_fsbu_mcp.models import Standard
+
+EXIT_IN_SYNC = 0
+EXIT_DRIFT = 1
+EXIT_UNREACHABLE = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +82,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    html = fetch(REGISTRY_URL, args.cache, live=args.live)
+    try:
+        html = fetch(REGISTRY_URL, args.cache, live=args.live)
+    except FetchError as error:
+        # Any failure to *obtain* the registry - 503, timeout, DNS, empty cache -
+        # must not read as "the registry drifted". The caller tells them apart by
+        # exit code: a drift opens a pull request, an unreachable source does not.
+        print(f"Не удалось получить реестр Минфина: {error}", file=sys.stderr)
+        return EXIT_UNREACHABLE
+
     if args.save_fixture is not None:
         args.save_fixture.write_bytes(html)
 
@@ -88,9 +100,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if diff.is_empty:
         print("Реестр Минфина совпадает с корпусом")
-        return 0
+        return EXIT_IN_SYNC
     print(diff.render(), file=sys.stderr)
-    return 1
+    return EXIT_DRIFT
 
 
 if __name__ == "__main__":

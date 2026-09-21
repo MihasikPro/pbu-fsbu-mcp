@@ -2,6 +2,8 @@ from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
+from etl import watch
+from etl.http_client import cache_path_for
 from etl.registry import REGISTRY_URL, RegistryRow, parse
 from etl.watch import diff_registry
 from pbu_fsbu_mcp.loader import load_all
@@ -79,3 +81,50 @@ def test_changed_expiry_is_reported() -> None:
     rows[0] = replace(rows[0], effective_to=date(2030, 1, 1))
     diff = diff_registry(rows, standards)
     assert any(changed_id in item for item in diff.changed)
+
+
+def _seeded_cache(tmp_path: Path) -> Path:
+    """A cache directory holding the committed registry fixture as `REGISTRY_URL`."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    cache_path_for(REGISTRY_URL, cache).write_bytes(FIXTURE.read_bytes())
+    return cache
+
+
+def test_matching_registry_exits_in_sync(tmp_path: Path) -> None:
+    code = watch.main(
+        ["--cache", str(_seeded_cache(tmp_path)), "--report", str(tmp_path / "diff.md")]
+    )
+    assert code == watch.EXIT_IN_SYNC
+
+
+def test_drift_exits_with_its_own_code(tmp_path: Path) -> None:
+    sources = tmp_path / "standards"
+    sources.mkdir()
+    for path in sorted(SOURCES.glob("*.yaml"))[1:]:
+        (sources / path.name).write_bytes(path.read_bytes())
+
+    code = watch.main(
+        [
+            "--cache",
+            str(_seeded_cache(tmp_path)),
+            "--sources",
+            str(sources),
+            "--report",
+            str(tmp_path / "diff.md"),
+        ]
+    )
+    assert code == watch.EXIT_DRIFT
+
+
+def test_unreachable_registry_exits_with_its_own_code(tmp_path: Path) -> None:
+    """A source that cannot be fetched is not a drift.
+
+    The workflow opens a pull request on EXIT_DRIFT; conflating the two made a
+    503 from minfin.gov.ru look like a new order from the ministry.
+    """
+    report = tmp_path / "diff.md"
+    code = watch.main(["--cache", str(tmp_path / "empty-cache"), "--report", str(report)])
+
+    assert code == watch.EXIT_UNREACHABLE
+    assert not report.exists(), "Недоступный источник не должен оставлять отчёт для PR"

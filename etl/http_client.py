@@ -9,11 +9,20 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-USER_AGENT = "pbu-fsbu-mcp/0.1 (+https://github.com/OWNER/pbu-fsbu-mcp)"
+USER_AGENT = "pbu-fsbu-mcp/0.1 (+https://github.com/MihasikPro/pbu-fsbu-mcp)"
 TIMEOUT_SECONDS = 30.0
 
 
-class CacheMiss(LookupError):
+class FetchError(RuntimeError):
+    """Every way `fetch` can fail to obtain a body, under one type.
+
+    Callers decide what a failed fetch means (retry, skip, abort) without
+    importing `httpx` - transport and HTTP-status errors are wrapped here so
+    that network access stays contained in this module.
+    """
+
+
+class CacheMiss(FetchError):
     def __init__(self, url: str) -> None:
         super().__init__(f"Нет кэшированного ответа для {url}. Запустите ETL с --live.")
 
@@ -34,12 +43,16 @@ def fetch(url: str, cache_dir: Path, *, live: bool) -> bytes:
 
     import httpx
 
-    response = httpx.get(
-        url,
-        timeout=TIMEOUT_SECONDS,
-        follow_redirects=True,
-        headers={"User-Agent": USER_AGENT},
-    )
-    response.raise_for_status()
+    try:
+        response = httpx.get(
+            url,
+            timeout=TIMEOUT_SECONDS,
+            follow_redirects=True,
+            headers={"User-Agent": USER_AGENT},
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as error:
+        raise FetchError(f"Не удалось загрузить {url}: {error}") from error
+
     path.write_bytes(response.content)
     return response.content

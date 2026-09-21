@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from etl.http_client import CacheMiss, cache_path_for, fetch
+from etl.http_client import CacheMiss, FetchError, cache_path_for, fetch
 
 
 def test_cache_path_is_deterministic(tmp_path: Path) -> None:
@@ -25,4 +25,41 @@ def test_offline_read_returns_cached_bytes(tmp_path: Path) -> None:
 
 def test_offline_read_without_cache_raises(tmp_path: Path) -> None:
     with pytest.raises(CacheMiss, match="https://example.org/missing"):
+        fetch("https://example.org/missing", tmp_path, live=False)
+
+
+def test_http_error_is_wrapped_as_fetch_error(tmp_path: Path, monkeypatch) -> None:
+    """A 503 must reach the caller as FetchError, not as an httpx type.
+
+    etl.watch decides between "реестр разошёлся" and "источник недоступен" by
+    catching FetchError; an unwrapped httpx exception would escape that branch.
+    """
+    import httpx
+
+    url = "https://example.org/down"
+    request = httpx.Request("GET", url)
+    monkeypatch.setattr(
+        httpx, "get", lambda *args, **kwargs: httpx.Response(503, request=request)
+    )
+
+    with pytest.raises(FetchError, match="503"):
+        fetch(url, tmp_path, live=True)
+
+    assert not cache_path_for(url, tmp_path).exists(), "Ошибочный ответ не кэшируется"
+
+
+def test_transport_error_is_wrapped_as_fetch_error(tmp_path: Path, monkeypatch) -> None:
+    import httpx
+
+    def _boom(*args: object, **kwargs: object) -> httpx.Response:
+        raise httpx.ConnectError("name resolution failed")
+
+    monkeypatch.setattr(httpx, "get", _boom)
+
+    with pytest.raises(FetchError, match="name resolution failed"):
+        fetch("https://example.org/gone", tmp_path, live=True)
+
+
+def test_cache_miss_is_a_fetch_error(tmp_path: Path) -> None:
+    with pytest.raises(FetchError):
         fetch("https://example.org/missing", tmp_path, live=False)
