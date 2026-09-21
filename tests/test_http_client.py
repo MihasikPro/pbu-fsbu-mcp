@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from etl.http_client import CacheMiss, FetchError, cache_path_for, fetch
+from etl.http_client import USER_AGENT, CacheMiss, FetchError, cache_path_for, fetch
 
 
 def test_cache_path_is_deterministic(tmp_path: Path) -> None:
@@ -63,3 +63,14 @@ def test_transport_error_is_wrapped_as_fetch_error(tmp_path: Path, monkeypatch) 
 def test_cache_miss_is_a_fetch_error(tmp_path: Path) -> None:
     with pytest.raises(FetchError):
         fetch("https://example.org/missing", tmp_path, live=False)
+
+
+def test_user_agent_avoids_the_token_minfin_refuses() -> None:
+    """Minfin's WAF answers 503 to any User-Agent mentioning github.com.
+
+    Measured against the live registry on 2026-09-21: identical request, 200 for
+    "pbu-fsbu-mcp/0.1" and 503 once the repository URL is appended. The link is
+    the obvious thing for a future reader to re-add, so it is pinned here.
+    """
+    assert "github.com" not in USER_AGENT.lower()
+    assert USER_AGENT.startswith("pbu-fsbu-mcp/")

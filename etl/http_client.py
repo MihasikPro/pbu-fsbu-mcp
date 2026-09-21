@@ -9,7 +9,14 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-USER_AGENT = "pbu-fsbu-mcp/0.1 (+https://github.com/MihasikPro/pbu-fsbu-mcp)"
+# Deliberately without the repository URL. Measured 2026-09-21 against the live
+# registry: the same request returns 200 with "pbu-fsbu-mcp/0.1" and 503 as soon
+# as the User-Agent contains "github.com" (in any shape - with or without a
+# scheme, with or without the "+" convention); "curl/…" and "wget/…" are refused
+# the same way. The ministry's WAF started doing this between 2026-09-14 and
+# 2026-09-21 and it is what broke the etl-watch run. The project name alone
+# identifies the client and is accepted - do not put the repo link back.
+USER_AGENT = "pbu-fsbu-mcp/0.1"
 TIMEOUT_SECONDS = 30.0
 
 
